@@ -1,0 +1,624 @@
+{% comment %}
+  App Block: Sticky Review Notification Banner - Enhanced Version
+  Features: Click to expand vertical review panel with animation and Swiper carousel.
+  NOTE: This block requires a Shopify theme app extension environment to access block.settings.
+{% endcomment %}
+
+<!-- Swiper CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
+
+<!-- Sticky Notification -->
+<div id="sticky-review-notification" class="sticky-review-container" style="display: none;" onclick="openReviewPanel()">
+  <button class="sticky-review-close" onclick="closeStickyReview(event)">×</button>
+  
+  <div class="swiper stickyReviewSwiper">
+    <div class="swiper-wrapper" id="sticky-review-wrapper">
+      <div class="swiper-slide">
+        <div class="sticky-review-content">
+          <div class="sticky-review-loading">Loading reviews...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Expandable Review Panel -->
+<div id="review-panel" class="review-panel" style="display: none;">
+  <div class="review-panel-header">
+    <div class="review-panel-title">
+      <!-- Google Logo SVG used in the header -->
+      <svg class="google-logo" viewBox="0 0 533 544" xmlns="http://www.w3.org/2000/svg"><path d="M533 276c0-18-1.7-36.4-5.2-54H274v102h147c-6 32.5-22.3 59-46 76v75h96c56.8-52.6 90-131 90-209z" fill="#4285F4"/><path d="M274 544c70.8 0 130.3-23 173.3-62.7l-96-75c-26 17-59 27-97 27-74 0-137.5-50-160.3-117l-100 78C73 477 167 544 274 544z" fill="#34A853"/><path d="M113.7 327c-5.5-17-8.7-35.3-8.7-54s3.2-37 8.7-54l-100-78c-12 28-18.7 59-18.7 94 0 34.6 6.7 65.6 18.7 94l100-78z" fill="#FBBC04"/><path d="M274 160c41 0 77 14 105 40l84-82c-50-46-118-74-189-74-107 0-201 67-248 160l100 78C136.5 210 200 160 274 160z" fill="#EA4335"/></svg>
+      <div class="review-panel-rating">
+        <span class="rating-number">4.7</span>
+        <span class="rating-stars" style="color: {{ block.settings.star_color | default: '#FFD700' }};">⭐⭐⭐⭐⭐</span>
+        <span class="rating-count">(193876)</span>
+      </div>
+    </div>
+    <button class="review-panel-close" onclick="closeReviewPanel(event)">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-x"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    </button>
+  </div>
+  
+  <div class="review-panel-content" id="review-panel-content">
+    <div class="review-panel-loading">Loading all reviews...</div>
+  </div>
+</div>
+
+<!-- Overlay for panel -->
+<div id="review-panel-overlay" class="review-panel-overlay" style="display: none;" onclick="closeReviewPanel(event)"></div>
+
+<!-- Swiper JS -->
+<script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+
+<script>
+  (function() {
+    // Global scope variables
+    const blockSettings = {
+      position: "{{ block.settings.position }}",
+      autoScrollDelay: {{ block.settings.auto_scroll_delay | times: 1000 }},
+      showCloseButton: {{ block.settings.show_close_button }},
+      bgColor: "{{ block.settings.bg_color }}",
+      textColor: "{{ block.settings.text_color }}",
+      starColor: "{{ block.settings.star_color }}"
+    };
+
+    let swiperInstance = null;
+    // Use localStorage for a more persistent "closed" state across sessions, 
+    // but the original used sessionStorage, so we'll stick to that for now.
+    let isClosed = sessionStorage.getItem('stickyReviewClosed') === 'true'; 
+    let allReviews = []; // Stores all fetched reviews
+
+    // Constant for the Google source icon
+    const GOOGLE_ICON_SVG = '<svg class="review-source-icon" viewBox="0 0 533 544" xmlns="http://www.w3.org/2000/svg"><path d="M533 276c0-18-1.7-36.4-5.2-54H274v102h147c-6 32.5-22.3 59-46 76v75h96c56.8-52.6 90-131 90-209z" fill="#4285F4"/><path d="M274 544c70.8 0 130.3-23 173.3-62.7l-96-75c-26 17-59 27-97 27-74 0-137.5-50-160.3-117l-100 78C73 477 167 544 274 544z" fill="#34A853"/><path d="M113.7 327c-5.5-17-8.7-35.3-8.7-54s3.2-37 8.7-54l-100-78c-12 28-18.7 59-18.7 94 0 34.6 6.7 65.6 18.7 94l100-78z" fill="#FBBC04"/><path d="M274 160c41 0 77 14 105 40l84-82c-50-46-118-74-189-74-107 0-201 67-248 160l100 78C136.5 210 200 160 274 160z" fill="#EA4335"/></svg>';
+
+
+    // --- Utility Functions ---
+
+    function getTimeAgo(date) {
+      const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+      
+      let interval = seconds / 31536000;
+      if (interval > 1) return Math.floor(interval) + " years ago";
+      
+      interval = seconds / 2592000;
+      if (interval > 1) return Math.floor(interval) + " months ago";
+      
+      interval = seconds / 86400;
+      if (interval > 1) return Math.floor(interval) + " days ago";
+      
+      interval = seconds / 3600;
+      if (interval > 1) return Math.floor(interval) + " hours ago";
+      
+      interval = seconds / 60;
+      if (interval > 1) return Math.floor(interval) + " minutes ago";
+      
+      return "a moment ago";
+    }
+    
+    // --- Sticky Banner Logic ---
+
+    async function loadStickyReviews() {
+      const wrapper = document.getElementById("sticky-review-wrapper");
+      if (!wrapper) return;
+
+      try {
+        // NOTE: Replace this placeholder URL with your actual API endpoint for production
+        // Using a mock data structure as the endpoint is unavailable in this environment
+        const apiUrl = "https://mock.example.com/api/reviews";
+        
+        // Mock Data to ensure functionality
+        const mockData = {
+          reviews: [
+            { id: 1, name: "Jessica A.", rating: 5, comment: "Amazing product! Fast shipping and excellent quality.", date: new Date(Date.now() - 3600000).toISOString(), profileImage: "https://i.pravatar.cc/100?img=11", verified: true },
+            { id: 2, name: "Mark T.", rating: 5, comment: "I love this so much! Highly recommend.", date: new Date(Date.now() - 86400000 * 2).toISOString(), profileImage: "https://i.pravatar.cc/100?img=43", verified: true },
+            { id: 3, name: "Chris P.", rating: 4, comment: "Good quality, minor delay in delivery.", date: new Date(Date.now() - 86400000 * 10).toISOString(), profileImage: "https://i.pravatar.cc/100?img=22", verified: false },
+            { id: 4, name: "Sarah K.", rating: 5, comment: "Exactly what I needed for my project.", date: new Date(Date.now() - 86400000 * 30).toISOString(), profileImage: "https://i.pravatar.cc/100?img=50", verified: true },
+            { id: 5, name: "David L.", rating: 5, comment: "Outstanding service and packaging.", date: new Date(Date.now() - 86400000 * 90).toISOString(), profileImage: "https://i.pravatar.cc/100?img=65", verified: true },
+            { id: 6, name: "Emily B.", rating: 4, comment: "Very satisfied with the purchase.", date: new Date(Date.now() - 86400000 * 150).toISOString(), profileImage: "https://i.pravatar.cc/100?img=70", verified: false },
+          ]
+        };
+
+        // Simulate fetch delay and use mock data
+        const data = await new Promise(resolve => setTimeout(() => resolve(mockData), 500));
+
+        if (!data || !data.reviews || data.reviews.length === 0) return;
+
+        allReviews = data.reviews; // Store for the expandable panel
+
+        wrapper.innerHTML = "";
+
+        // Create slides for each review (showing latest 5 in the carousel)
+        data.reviews.slice(0, 5).forEach((review) => {
+          const slide = document.createElement("div");
+          slide.className = "swiper-slide";
+          const stars = "⭐".repeat(review.rating);
+          
+          slide.innerHTML = `
+            <div class="sticky-review-content" style="background-color: ${blockSettings.bgColor}; color: ${blockSettings.textColor};">
+              <div class="sticky-review-avatar">
+                <img src="${review.profileImage}" alt="${review.name}" onerror="this.onerror=null; this.src='https://i.pravatar.cc/100?img=1';">
+              </div>
+              <div class="sticky-review-text">
+                <div class="sticky-review-stars" style="color: ${blockSettings.starColor};">
+                  ${stars}
+                </div>
+                <div class="sticky-review-message">
+                  <strong>${review.rating} Star Rating</strong> by ${review.name}
+                </div>
+                <div class="sticky-review-time">
+                  ${getTimeAgo(review.date)}
+                </div>
+              </div>
+            </div>
+          `;
+          wrapper.appendChild(slide);
+        });
+
+        if (!isClosed) {
+          document.getElementById("sticky-review-notification").style.display = "block";
+          initSwiper();
+        }
+
+      } catch (err) {
+        console.error("❌ Error fetching sticky reviews:", err);
+        // Fallback content in case of error
+        const sticky = document.getElementById("sticky-review-notification");
+        const loadingContent = sticky.querySelector('.sticky-review-loading');
+        if (loadingContent) {
+          loadingContent.textContent = "Error loading reviews.";
+          loadingContent.style.color = "red";
+        }
+      }
+    }
+
+    function initSwiper() {
+      if (swiperInstance) swiperInstance.destroy(true, true);
+
+      const autoplayDelay = blockSettings.autoScrollDelay || 3000;
+
+      swiperInstance = new Swiper('.stickyReviewSwiper', {
+        direction: 'horizontal',
+        slidesPerView: 1,
+        spaceBetween: 10,
+        loop: true,
+        autoplay: {
+          delay: autoplayDelay,
+          disableOnInteraction: false,
+        },
+        speed: 800, // Faster transition for a snappier feel
+        effect: 'slide',
+      });
+    }
+
+    // --- Panel Interaction Logic ---
+
+    // Exposed to the global window object for HTML onclick
+    window.openReviewPanel = function() {
+      const sticky = document.getElementById("sticky-review-notification");
+      const panel = document.getElementById("review-panel");
+      const overlay = document.getElementById("review-panel-overlay");
+      const panelContent = document.getElementById("review-panel-content");
+
+      // 1. Hide the sticky banner immediately
+      sticky.style.display = "none";
+
+      // 2. Prepare panel and overlay for animation
+      overlay.style.display = "block";
+      panel.style.display = "flex"; // Use flex to support header/content layout
+
+      // 3. Trigger CSS transition (using rAF for reliable transition start)
+      requestAnimationFrame(() => {
+        overlay.classList.add("active");
+        panel.classList.add("active");
+      });
+
+      // 4. Populate with all reviews
+      panelContent.innerHTML = "";
+      
+      if (allReviews.length === 0) {
+        panelContent.innerHTML = "<div class='review-panel-loading'>No reviews loaded yet.</div>";
+        return;
+      }
+      
+      allReviews.forEach((review) => {
+        const reviewCard = document.createElement("div");
+        reviewCard.className = "review-card";
+        
+        const stars = "⭐".repeat(review.rating);
+        const verifiedBadge = review.verified ? '<span class="verified-badge">Verified Buyer</span>' : '';
+        
+        reviewCard.innerHTML = `
+          <div class="review-card-header">
+            <img src="${review.profileImage}" alt="${review.name}" class="review-card-avatar" onerror="this.onerror=null; this.src='https://i.pravatar.cc/100?img=1';">
+            <div class="review-card-info">
+              <div class="review-card-name">
+                ${review.name}
+              </div>
+              <div class="review-card-source">
+                 ${GOOGLE_ICON_SVG} Google Review
+              </div>
+            </div>
+          </div>
+          <div class="review-card-stars" style="color: ${blockSettings.starColor};">
+            ${stars}
+          </div>
+          <div class="review-card-text">
+            ${review.comment || 'Great experience!'}
+          </div>
+          ${verifiedBadge ? `<div class="review-card-verified">${verifiedBadge}</div>` : ''}
+        `;
+        
+        panelContent.appendChild(reviewCard);
+      });
+      
+      // Scroll to top of the panel content
+      panelContent.scrollTop = 0;
+    };
+
+    // Exposed to the global window object for HTML onclick
+    window.closeReviewPanel = function(event) {
+      if (event) event.stopPropagation();
+      
+      const sticky = document.getElementById("sticky-review-notification");
+      const panel = document.getElementById("review-panel");
+      const overlay = document.getElementById("review-panel-overlay");
+      
+      // 1. Trigger reverse CSS transition
+      panel.classList.remove("active");
+      overlay.classList.remove("active");
+      
+      // 2. Wait for transition (300ms) then set display: none
+      setTimeout(() => {
+        panel.style.display = "none";
+        overlay.style.display = "none";
+        
+        // 3. Show sticky banner again, but only if it wasn't permanently closed
+        isClosed = sessionStorage.getItem('stickyReviewClosed') === 'true'; 
+        if (!isClosed) {
+           sticky.style.display = "block";
+        }
+        
+      }, 300); // Matches CSS transition duration
+    };
+
+    // Exposed to the global window object for HTML onclick
+    window.closeStickyReview = function(event) {
+      if (event) event.stopPropagation();
+      
+      sessionStorage.setItem('stickyReviewClosed', 'true'); 
+      isClosed = true;
+      document.getElementById("sticky-review-notification").style.display = "none";
+    };
+
+    // --- Initialization ---
+    function applySettings() {
+      const container = document.getElementById("sticky-review-notification");
+      // Use block.settings.position to set the class for positioning
+      container.classList.add('position-' + (blockSettings.position || 'bottom-left'));
+      
+      if (!blockSettings.showCloseButton) {
+        const closeBtn = document.querySelector('.sticky-review-close');
+        if (closeBtn) closeBtn.style.display = 'none';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      // Re-check sessionStorage on load
+      isClosed = sessionStorage.getItem('stickyReviewClosed') === 'true'; 
+      if (!isClosed) {
+        applySettings();
+        // Delay load to simulate external loading and allow initial page load
+        setTimeout(() => {
+          loadStickyReviews();
+        }, 1000); 
+      }
+    });
+
+  })();
+</script>
+
+<style>
+  :root {
+    --color-primary: #1a73e8; /* Google Blue equivalent */
+    --color-text-dark: #202124;
+    --color-text-medium: #5f6368;
+    --color-background-light: #f9f9f9;
+    --color-border: #e0e0e0;
+    --border-radius: 12px;
+    --transition-speed: 0.3s;
+  }
+  
+  * {
+    box-sizing: border-box;
+    /* Use a clean, modern system font stack */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  }
+
+  /* Sticky Notification Styles */
+  .sticky-review-container {
+    position: fixed;
+    z-index: 9999;
+    max-width: 330px; /* Slightly wider for better presentation */
+    width: calc(100% - 40px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    animation: slideIn 0.5s ease-out; 
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .sticky-review-container:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Positioning classes from Liquid settings */
+  .position-bottom-left { bottom: 20px; left: 20px; }
+  .position-bottom-right { bottom: 20px; right: 20px; }
+  .position-top-left { top: 20px; left: 20px; }
+  .position-top-right { top: 20px; right: 20px; }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .sticky-review-close {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.5);
+    color: white;
+    border: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background 0.3s;
+  }
+
+  .sticky-review-close:hover { background: rgba(0, 0, 0, 0.7); }
+
+  .stickyReviewSwiper { width: 100%; height: 85px; } /* Slightly reduced height */
+
+  .sticky-review-content {
+    display: flex;
+    align-items: center;
+    gap: 15px; /* Increased gap */
+    padding: 15px;
+    height: 85px;
+  }
+
+  .sticky-review-avatar img {
+    width: 55px;
+    height: 55px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid rgba(0, 0, 0, 0.05); /* Added subtle border */
+  }
+  
+  .sticky-review-text { 
+    flex: 1; 
+    min-width: 0; 
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .sticky-review-stars { font-size: 14px; margin-bottom: 4px; line-height: 1; }
+  .sticky-review-message { font-size: 14px; font-weight: 600; margin-bottom: 2px; line-height: 1.4; color: var(--color-text-dark); }
+  .sticky-review-message strong { font-weight: 700; }
+  .sticky-review-time { font-size: 12px; color: var(--color-text-medium); opacity: 0.8; }
+  .sticky-review-loading { padding: 20px; text-align: center; font-size: 14px; color: var(--color-text-medium); }
+
+  /* Review Panel Overlay */
+  .review-panel-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 10000;
+    opacity: 0;
+    transition: opacity var(--transition-speed) ease-in-out; 
+  }
+
+  .review-panel-overlay.active { opacity: 1; }
+
+  /* Review Panel (Slides in from the right) */
+  .review-panel {
+    position: fixed;
+    top: 0;
+    right: -450px; /* Hidden position */
+    width: 100%;
+    max-width: 450px;
+    height: 100vh;
+    background: #ffffff;
+    box-shadow: -4px 0 30px rgba(0, 0, 0, 0.15);
+    z-index: 10001;
+    display: flex;
+    flex-direction: column;
+    transition: right var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1); /* Enhanced transition curve */
+  }
+
+  .review-panel.active { right: 0; } /* Visible position */
+
+  .review-panel-header {
+    padding: 20px 25px;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    background: var(--color-background-light);
+    flex-shrink: 0;
+  }
+  
+ .review-panel-title {
+    display: flex;
+    /* flex-direction: column; */
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+}
+
+  .google-logo { height: 26px; width: auto; margin-bottom: 8px; } /* Improved logo size */
+
+  .review-panel-rating {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+  }
+
+  .rating-number { font-size: 28px; font-weight: 700; color: var(--color-text-dark); }
+  .rating-stars { font-size: 20px; }
+  .rating-count { font-size: 14px; color: var(--color-text-medium); }
+
+  .review-panel-close {
+    background: transparent;
+    border: none;
+    color: var(--color-text-medium);
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition: color 0.2s;
+  }
+
+  .review-panel-close:hover { color: var(--color-text-dark); background: rgba(0, 0, 0, 0.05); border-radius: 50%; }
+
+  .review-panel-content {
+    flex: 1;
+    overflow-y: auto; /* Scrollable review list */
+    padding: 25px;
+  }
+
+  /* Review Card */
+  .review-card {
+    background: #ffffff;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: 20px;
+    margin-bottom: 15px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  .review-card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .review-card-avatar { width: 45px; height: 45px; border-radius: 50%; object-fit: cover; }
+  .review-card-info { flex: 1; }
+  .review-card-name { font-size: 15px; font-weight: 600; color: var(--color-text-dark); }
+  .review-card-source { 
+    font-size: 12px; 
+    color: var(--color-text-medium); 
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .review-source-icon { height: 12px; width: auto; margin-right: 2px;}
+  .review-card-stars { font-size: 16px; margin-bottom: 10px; }
+  .review-card-text { font-size: 14px; line-height: 1.6; color: var(--color-text-dark); }
+  .review-card-verified { 
+    margin-top: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-primary);
+    padding: 4px 8px;
+    background: rgba(26, 115, 232, 0.1);
+    border-radius: 4px;
+    display: inline-block;
+  }
+  
+  /* Mobile Responsive */
+  @media (max-width: 768px) {
+    /* Full width panel on smaller screens */
+    .review-panel { max-width: 100%; right: -100%; } 
+  }
+
+  @media (max-width: 480px) {
+    /* Center and make sticky banner full width on tiny screens */
+    .sticky-review-container {
+      max-width: calc(100% - 20px);
+      bottom: 10px !important;
+      left: 10px !important;
+      right: 10px !important;
+    }
+    
+    .review-panel-header {
+      padding: 15px 20px;
+    }
+
+    .rating-number { font-size: 24px; }
+    .rating-stars { font-size: 16px; }
+  }
+</style>
+
+{% schema %}
+{
+  "name": "Sticky Review",
+  "target": "body",
+  "settings": [
+    {
+      "type": "select",
+      "id": "position",
+      "label": "Position",
+      "options": [
+        { "value": "bottom-left", "label": "Bottom Left" },
+        { "value": "bottom-right", "label": "Bottom Right" },
+        { "value": "top-left", "label": "Top Left" },
+        { "value": "top-right", "label": "Top Right" }
+      ],
+      "default": "bottom-left",
+      "info": "Choose where to display the notification"
+    },
+    {
+      "type": "range",
+      "id": "auto_scroll_delay",
+      "label": "Auto Scroll Delay (seconds)",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "unit": "s",
+      "default": 3,
+      "info": "Time before switching to next review"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_close_button",
+      "label": "Show Close Button",
+      "default": true,
+      "info": "Allow users to close the notification"
+    },
+    {
+      "type": "color",
+      "id": "bg_color",
+      "label": "Background Color",
+      "default": "#ffffff"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Text Color",
+      "default": "#222222"
+    },
+    {
+      "type": "color",
+      "id": "star_color",
+      "label": "Star Color",
+      "default": "#FFD700"
+    }
+  ]
+}
+{% endschema %}
