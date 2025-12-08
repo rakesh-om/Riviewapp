@@ -1,0 +1,624 @@
+
+
+<div class="grid-review-widget" data-grid-reviews>
+  
+
+  <div class="review-header-bar" style="background-color: {{ block.settings.header_bg_color }};">
+    <div class="header-content-wrapper">
+      <div class="rating-info">
+        <h3 class="rating-number" style="color: {{ block.settings.header_text_color }};">
+          {{ block.settings.average_rating }}
+        </h3>
+        <div class="header-stars" style="color: {{ block.settings.star_color }};">
+          
+          {% assign rating_val = block.settings.average_rating | times: 1.0 %}
+          {% assign full_stars = rating_val | round %}
+          
+          {% for i in (1..5) %}
+            {% if i <= full_stars %}
+              {% comment %} Filled Star {% endcomment %}
+              {% render 'icon-star-filled' %} 
+            {% else %}
+              {% comment %} Empty Star {% endcomment %}
+              {% render 'icon-star-empty' %} 
+            {% endif %}
+          {% endfor %}
+
+        </div>
+        <p class="review-count-text" style="color: {{ block.settings.header_text_color | color_modify: 'alpha', 0.8 }};">
+          {{ block.settings.custom_review_count }} reviews on Google
+        </p>
+      </div>
+      
+      <a href="{{ block.settings.review_button_url }}" target="_blank" class="leave-review-btn">
+        Leave a Review
+      </a>
+    </div>
+  </div>
+  
+  <!-- Review Grid -->
+  <div class="review-grid-container">
+    <div class="review-grid" id="review-grid">
+      <div class="grid-loading">
+        <div class="grid-spinner"></div>
+        <p>Loading reviews...</p>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Load More Button -->
+  <div class="load-more-container">
+    <button id="load-more-btn" class="load-more-btn" disabled>
+      Load More
+    </button>
+  </div>
+  
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // --- CONFIG ---
+  const CONFIG = {
+    apiUrl: "{{ block.settings.api_url | default: 'MISSING_API_URL' }}", 
+    starColor: "{{ block.settings.star_color }}",
+    cardBgColor: "{{ block.settings.card_bg_color }}",
+    cardTextColor: "{{ block.settings.card_text_color }}",
+    initialLoad: 4, 
+    loadIncrement: 4, 
+    maxWords: 15 
+  };
+
+  let allReviews = [];
+  let currentLoadedCount = 0;
+  const reviewGrid = document.getElementById('review-grid');
+  const loadMoreBtn = document.getElementById('load-more-btn');
+
+  // --- Utility Functions ---
+  function formatDate(dateString) {
+    const date = new Date(dateString);
+    const options = { year: 'numeric', month: 'long', day: 'numeric' };
+    return date.toLocaleDateString('en-US', options);
+  }
+
+  function createStars(rating, size = 16) {
+    let starsHtml = '';
+    const filledStar = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="0" style="margin-right: 2px;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14l-5-4.87 6.91-1.01L12 2z"></path></svg>`;
+    const emptyStar = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5" style="margin-right: 2px;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14l-5-4.87 6.91-1.01L12 2z"></path></svg>`;
+    
+    const fullStars = Math.round(rating);
+
+    for (let i = 1; i <= 5; i++) {
+        if (i <= fullStars) {
+            starsHtml += filledStar;
+        } else {
+            starsHtml += emptyStar;
+        }
+    }
+    return starsHtml;
+  }
+
+  // --- Card Creation ---
+  function createReviewCard(review) {
+    const card = document.createElement('div');
+    card.className = 'review-card';
+    card.style.backgroundColor = CONFIG.cardBgColor;
+    card.style.color = CONFIG.cardTextColor;
+
+    const stars = createStars(review.rating, 16); 
+    const fullMessage = review.comment || '';
+    const words = fullMessage.trim().split(/\s+/);
+    const needsTruncate = words.length > CONFIG.maxWords;
+    const shortMessage = needsTruncate ? words.slice(0, CONFIG.maxWords).join(' ') + '...' : fullMessage;
+
+    const avatarSrc = review.profileImage || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ccc"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
+    
+    const timeAgo = review.timeAgo || formatDate(review.date); 
+
+    card.innerHTML = `
+      <div class="card-header-line">
+        <img src="${avatarSrc}" alt="${review.name}" class="card-avatar" loading="lazy">
+        <div class="card-info">
+          <div class="card-name">${review.name}</div>
+          <div class="card-time">${timeAgo}</div>
+        </div>
+      </div>
+      
+      <div class="card-body">
+        <div class="card-stars" style="color: ${CONFIG.starColor};">
+          ${stars}
+        </div>
+        <p class="card-message">${shortMessage}</p>
+        <p class="card-message-full" style="display: none;">${fullMessage}</p>
+      </div>
+      
+      ${needsTruncate ? `
+      <div class="card-read-more-wrapper">
+         <a href="#" class="card-show-more-link">Read more</a>
+      </div>
+      ` : ''}
+    `;
+
+    if (needsTruncate) {
+        const showMoreLink = card.querySelector('.card-show-more-link');
+        const shortMsg = card.querySelector('.card-message');
+        const fullMsg = card.querySelector('.card-message-full');
+        
+        if (showMoreLink && shortMsg && fullMsg) {
+            let isExpanded = false;
+            showMoreLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                isExpanded = !isExpanded;
+                
+                if (isExpanded) {
+                    shortMsg.style.display = 'none';
+                    fullMsg.style.display = 'block';
+                    showMoreLink.textContent = 'Show less';
+                } else {
+                    shortMsg.style.display = 'block';
+                    fullMsg.style.display = 'none';
+                    showMoreLink.textContent = 'Read more';
+                }
+            });
+        }
+    }
+
+    return card;
+  }
+
+  // --- Load and Render Functions ---
+  async function loadReviews() {
+    const apiUrl = CONFIG.apiUrl;
+    if (apiUrl === 'MISSING_API_URL' || !apiUrl.startsWith('http')) {
+        showError('Please set a valid API URL in the theme editor settings.');
+        return;
+    }
+    
+    try {
+      const response = await fetch(apiUrl, {
+        method: "GET",
+        mode: "cors",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true"
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data?.reviews || !Array.isArray(data.reviews) || data.reviews.length === 0) {
+        showNoReviews();
+        return;
+      }
+
+      allReviews = data.reviews.filter(review => review.rating >= 1);
+      
+      if (allReviews.length === 0) {
+          showNoReviews();
+          return;
+      }
+
+      reviewGrid.innerHTML = ''; 
+      renderNextReviews(CONFIG.initialLoad);
+
+    } catch (error) {
+      console.error('Error loading Grid reviews:', error);
+      showError('Unable to load reviews. Check console for API error.');
+    }
+  }
+
+  function renderNextReviews(count = CONFIG.loadIncrement) {
+    if (!reviewGrid) return;
+
+    const startIndex = currentLoadedCount;
+    const endIndex = Math.min(allReviews.length, startIndex + count);
+    
+    for (let i = startIndex; i < endIndex; i++) {
+        const review = allReviews[i];
+        const card = createReviewCard(review);
+        reviewGrid.appendChild(card);
+    }
+
+    currentLoadedCount = endIndex;
+    updateLoadMoreButton();
+  }
+
+  function updateLoadMoreButton() {
+      if (currentLoadedCount < allReviews.length) {
+          loadMoreBtn.style.display = 'block';
+          loadMoreBtn.textContent = `Load More (${allReviews.length - currentLoadedCount} more)`;
+          loadMoreBtn.disabled = false;
+      } else {
+          loadMoreBtn.style.display = 'none';
+          loadMoreBtn.disabled = true;
+      }
+  }
+  
+  // --- States ---
+  function showNoReviews() {
+    if (reviewGrid) {
+      reviewGrid.innerHTML = '<div class="grid-no-reviews"><p>No customer reviews available.</p></div>';
+    }
+    if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+  }
+
+  function showError(message) {
+    if (reviewGrid) {
+      reviewGrid.innerHTML = `<div class="grid-error"><p>${message}</p></div>`;
+    }
+    if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+  }
+  
+  
+  function init() {
+    if (loadMoreBtn) {
+        loadMoreBtn.addEventListener('click', () => renderNextReviews(CONFIG.loadIncrement));
+    }
+    loadReviews();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+</script>
+
+
+{% style %}
+
+.grid-review-widget {
+  width: 100%;
+  max-width: 1200px; 
+  margin: 0 auto;
+  padding: 0 16px 30px;
+}
+
+
+.review-header-bar {
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  border-radius: 12px;
+}
+
+.header-content-wrapper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rating-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rating-number {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.header-stars {
+  display: flex;
+  line-height: 1;
+}
+
+.header-stars svg {
+  width: 16px; 
+  height: 16px;
+  fill: currentColor;
+  margin-right: 2px;
+}
+
+.review-count-text {
+  font-size: 14px;
+  margin: 0;
+  font-weight: 500;
+}
+
+.leave-review-btn {
+  background: #E91E63;
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.leave-review-btn:hover {
+  background: #D81B60;
+}
+
+
+
+.review-grid-container {
+  width: 100%;
+}
+
+.review-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr); 
+  gap: 20px; 
+  animation: gridFadeIn 0.5s ease-out;
+}
+
+@keyframes gridFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+
+.review-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.2s;
+  min-height: 200px; 
+}
+
+.review-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.card-header-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.card-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.card-info {
+  line-height: 1.2;
+}
+
+.card-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.card-time {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.card-body {
+  margin-bottom: 12px;
+  flex-grow: 1;
+}
+
+.card-stars {
+  display: flex;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.card-message {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.card-message-full {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.card-read-more-wrapper {
+    text-align: center;
+    padding-top: 10px;
+    margin-top: auto;
+    flex-shrink: 0;
+}
+
+.card-show-more-link {
+    font-size: 14px;
+    font-weight: 600;
+    color: #2563eb;
+    text-decoration: none;
+    border-bottom: 1px dashed #2563eb;
+    transition: color 0.2s, border-color 0.2s;
+    cursor: pointer;
+}
+
+.card-show-more-link:hover {
+    color: #1d4ed8;
+    border-bottom-color: #1d4ed8;
+}
+
+
+.grid-loading, .grid-no-reviews, .grid-error {
+  grid-column: 1 / -1; 
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  width: 100%;
+  color: #9ca3af;
+  text-align: center;
+}
+
+.grid-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #f3f4f6;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+
+.load-more-container {
+  text-align: center;
+  margin-top: 30px;
+}
+
+.load-more-btn {
+  background: #F3F4F6;
+  color: #111827;
+  border: 1px solid #D1D5DB;
+  font-weight: 600;
+  padding: 12px 30px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.load-more-btn:hover:not(:disabled) {
+  background: #E5E7EB;
+  border-color: #9CA3AF;
+}
+
+.load-more-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+
+/* === Mobile Responsive === */
+@media (max-width: 1024px) {
+  .review-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .review-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  
+  .review-header-bar {
+      padding: 12px 16px;
+  }
+  
+  .rating-number {
+      font-size: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .review-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .header-content-wrapper {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+  }
+  
+  .review-count-text {
+      font-size: 13px;
+  }
+  
+  .leave-review-btn {
+      width: 100%;
+      text-align: center;
+  }
+}
+{% endstyle %}
+
+{% schema %}
+{
+  "name": "Review Grid Widget",
+  "target": "section",
+  "templates": ["product", "index"],
+  "settings": [
+    {
+      "type": "header",
+      "content": "Header & Buttons"
+    },
+    {
+      "type": "text",
+      "id": "average_rating",
+      "label": "Average Rating (Number)",
+      "default": "4.7",
+      "info": "Display rating number (e.g., 4.7)"
+    },
+    {
+      "type": "text",
+      "id": "custom_review_count",
+      "label": "Custom Review Count Text",
+      "default": "1933676",
+      "info": "Enter the number of total reviews (e.g., 1933676)"
+    },
+    {
+      "type": "url",
+      "id": "review_button_url",
+      "label": "Leave a Review Button URL",
+      "info": "Link for the 'Leave a Review' button."
+    },
+    {
+      "type": "header",
+      "content": "Review Data & Layout"
+    },
+    {
+      "type": "text",
+      "id": "api_url",
+      "label": "API URL",
+      "info": "Backend endpoint to fetch all reviews (e.g., https://yourdomain.com/api/reviews)"
+    },
+    {
+      "type": "header",
+      "content": "Colors"
+    },
+    {
+      "type": "color",
+      "id": "header_bg_color",
+      "label": "Header Background Color",
+      "default": "#FBEFF3"
+    },
+    {
+      "type": "color",
+      "id": "header_text_color",
+      "label": "Header Text Color",
+      "default": "#111827"
+    },
+    {
+      "type": "color",
+      "id": "star_color",
+      "label": "Star Color",
+      "default": "#FBBF24"
+    },
+    {
+      "type": "color",
+      "id": "card_bg_color",
+      "label": "Card Background",
+      "default": "#FFFFFF"
+    },
+    {
+      "type": "color",
+      "id": "card_text_color",
+      "label": "Card Text Color",
+      "default": "#111827"
+    }
+  ]
+}
+{% endschema %}
