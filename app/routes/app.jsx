@@ -1,18 +1,12 @@
-// C:\Users\Orange\riview-app\app\routes\app.jsx
-
 import { Outlet, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { AppProvider as RouterAppProvider } from "@shopify/shopify-app-react-router/react"; // Renamed
-import { AppProvider as PolarisAppProvider } from "@shopify/polaris"; // NEW IMPORT
+import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
-
-// NEW: Define i18n object here
-const i18n = {}; 
 
 export const loader = async ({ request }) => {
   await authenticate.admin(request);
 
-  // eslint-disable-next-line no-undef
+  
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
 };
 
@@ -20,18 +14,23 @@ export default function App() {
   const { apiKey } = useLoaderData();
 
   return (
-    // 1. WRAP EVERYTHING IN THE POLARIS PROVIDER
-    <PolarisAppProvider i18n={i18n}>
-      {/* 2. Use the renamed RouterAppProvider */}
-      <RouterAppProvider embedded apiKey={apiKey}> 
-        <s-app-nav>
-          <s-link href="/app">Home</s-link>
-          <s-link href="/app/additional">Main Page</s-link>
-        </s-app-nav>
-        <Outlet />
-      </RouterAppProvider>
-    </PolarisAppProvider>
+    <AppProvider embedded apiKey={apiKey}>
+      <s-app-nav>
+        <s-link href="/app">Home</s-link>
+         <s-link href="/app/displayreview">Display Reviews</s-link>
+        {/* <s-link href="/app/additional">Additional page</s-link> */}
+           <s-link href="/app/newhome">New Home</s-link>
+      </s-app-nav>
+      <Outlet />
+    </AppProvider>
   );
 }
 
-// ... rest of the file (ErrorBoundary, headers) remains the same
+// Shopify needs React Router to catch some thrown responses, so that their headers are included in the response.
+export function ErrorBoundary() {
+  return boundary.error(useRouteError());
+}
+
+export const headers = (headersArgs) => {
+  return boundary.headers(headersArgs);
+};

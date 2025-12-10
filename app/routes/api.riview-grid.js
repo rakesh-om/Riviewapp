@@ -3,17 +3,17 @@ import { authenticate } from "../shopify.server";
 
 export const action = async ({ request }) => {
   try {
-    console.log("🚀 Riview Grid settings save request");
+    console.log(" Riview Grid settings save request");
 
     if (request.method !== "POST") {
       return json(
         { success: false, error: "Method not allowed" },
         { status: 405 }
-      );
+      );  
     }
 
     const { admin } = await authenticate.admin(request);
-    console.log("🔐 Admin authenticated (Grid)");
+    console.log(" Admin authenticated (Grid)");
 
     const body = await request.json();
     const settings = body?.settings;
