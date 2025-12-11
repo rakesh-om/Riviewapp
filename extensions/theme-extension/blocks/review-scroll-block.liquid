@@ -1,32 +1,30 @@
 {% comment %}
   Theme App Extension: Scrollable Reviews (from Node backend)
   This file is configured to render only on Product pages.
+  Updated: removed navigation/pagination options, added text & star color options,
+  replaced star emoji with SVGs that use the star color setting.
 {% endcomment %}
 
 <!-- Swiper CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
 
-<div id="scroll-reviews-section" class="review-scroll-wrapper">
+<div id="scroll-reviews-section" class="review-scroll-wrapper" style="--review-text-color: {{ block.settings.text_color | default: '#222222' }};">
   <h2 class="review-heading">
     {{ block.settings.review_heading }}
   </h2>
-  
+
   <!-- Swiper Container -->
   <div class="swiper reviewSwiper">
     <div class="swiper-wrapper" id="scroll-reviews-container">
       <div class="swiper-slide">Loading reviews...</div>
     </div>
-    
-    <!-- Navigation Buttons -->
-    {% if block.settings.show_navigation %}
-      <div class="swiper-button-next"></div>
-      <div class="swiper-button-prev"></div>
-    {% endif %}
-    
-    <!-- Pagination -->
-    {% if block.settings.show_pagination %}
-      <div class="swiper-pagination"></div>
-    {% endif %}
+
+    <!-- Navigation Buttons (always present now) -->
+    <div class="swiper-button-next"></div>
+    <div class="swiper-button-prev"></div>
+
+    <!-- Pagination (always present now) -->
+    <div class="swiper-pagination"></div>
   </div>
 </div>
 
@@ -44,28 +42,24 @@
 <script>
   (function() {
     const blockSettings = {
-      // Accessing settings using liquid variables from the block context
       desktopCards: {{ block.settings.desktop_cards | default: 3 }},
-      showNavigation: {{ block.settings.show_navigation | default: true }},
-      showPagination: {{ block.settings.show_pagination | default: true }},
-      cardBgColor: "{{ block.settings.card_bg_color | default: '#ffffff' }}"
+      cardBgColor: "{{ block.settings.card_bg_color | default: '#ffffff' }}",
+      textColor: "{{ block.settings.text_color | default: '#222222' }}",
+      starColor: "{{ block.settings.star_color | default: '#FFD700' }}"
     };
 
     let swiperInstance = null;
 
     async function loadScrollableReviews() {
-      // Check if the container exists before proceeding
       const container = document.getElementById("scroll-reviews-container");
       if (!container) return;
-      
+
       try {
-        // Fetch reviews from the Node backend (localhost:5000)
         const response = await fetch("http://localhost:5000/api/reviews", {
           method: "GET",
           mode: "cors",
           headers: {
             "Accept": "application/json",
-            // Required for ngrok to work smoothly with browser security
             "ngrok-skip-browser-warning": "true",
           },
         });
@@ -80,7 +74,22 @@
 
         container.innerHTML = "";
 
-        // Process and render each review
+        // Helper to generate star SVGs (filled or empty)
+        function generateStars(rating) {
+          const total = 5;
+          let html = '';
+          for (let i = 0; i < total; i++) {
+            if (i < rating) {
+              // filled star
+              html += `<svg class="svg-star" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" role="img" style="vertical-align:middle; margin-right:4px; fill: ${blockSettings.starColor};"><path d="M12 .587l3.668 7.431L23.6 9.75l-5.467 5.33L19.335 24 12 19.897 4.665 24l1.202-8.92L.4 9.75l7.932-1.732L12 .587z"/></svg>`;
+            } else {
+              // empty star (outline)
+              html += `<svg class="svg-star svg-star-empty" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" role="img" style="vertical-align:middle; margin-right:4px; fill: none; stroke: ${blockSettings.starColor}; stroke-width:1.2;"><path d="M12 .587l3.668 7.431L23.6 9.75l-5.467 5.33L19.335 24 12 19.897 4.665 24l1.202-8.92L.4 9.75l7.932-1.732L12 .587z"/></svg>`;
+            }
+          }
+          return html;
+        }
+
         data.reviews.forEach((r, index) => {
           const slide = document.createElement("div");
           slide.className = "swiper-slide";
@@ -88,39 +97,33 @@
           const card = document.createElement("div");
           card.className = "scroll-review-card";
           card.style.backgroundColor = blockSettings.cardBgColor;
-
-          // Create stars dynamically
-          const stars = "⭐".repeat(r.rating) + "☆".repeat(5 - r.rating);
+          card.style.color = blockSettings.textColor;
 
           // Truncate comment to 20 words for initial display
-          const words = r.comment.split(" ");
+          const words = (r.comment || '').split(/\s+/);
           const shortComment = words.slice(0, 20).join(" ");
           const needsReadMore = words.length > 20;
-          
+
           // Escape backticks in the full comment for JavaScript string literal safety
-          const escapedFullComment = r.comment.replace(/`/g, '\\`');
+          const escapedFullComment = (r.comment || '').replace(/`/g, '\\`').replace(/\\/g, '\\\\').replace(/\$/g,'\\$');
 
           // Build image gallery in 4-column grid
           const gallery = `
             <div class="review-gallery-grid">
-              ${r.images
-                .map(
-                  (img, imgIndex) => `
+              ${ (r.images || []).map((img, imgIndex) => `
                 <div class="gallery-img-wrap" onclick="openGallery(${index}, ${imgIndex})">
                   <img src="${img}" class="review-image" alt="review image" loading="lazy" onerror="this.onerror=null; this.src='https://placehold.co/400x400/cccccc/000000?text=Image+Load+Error';">
-                </div>`
-                )
-                .join("")}
+                </div>
+              `).join("") }
             </div>
           `;
 
-        
           card.innerHTML = `
             <div class="review-header">
-              <img src="${r.profileImage}" alt="${r.name}" class="review-avatar" loading="lazy" onerror="this.onerror=null; this.src='https://i.pravatar.cc/100?img=1';">
+              <img src="${r.profileImage || 'https://i.pravatar.cc/100?img=1'}" alt="${r.name || 'Customer'}" class="review-avatar" loading="lazy" onerror="this.onerror=null; this.src='https://i.pravatar.cc/100?img=1';">
               <div class="review-info">
-                <h4 class="review-name">${r.name}</h4>
-                <p class="review-stars">${stars}</p>
+                <h4 class="review-name">${r.name || 'Anonymous'}</h4>
+                <p class="review-stars">${generateStars(r.rating || 0)}</p>
               </div>
             </div>
             <p class="review-text" id="review-text-${index}">
@@ -128,18 +131,19 @@
               ${needsReadMore ? `<span class="read-more" onclick="toggleReadMore(${index}, \`${escapedFullComment}\`)">Read More</span>` : ''}
             </p>
             ${gallery}
-            <p class="review-date">${new Date(r.date).toDateString()}</p>
+            <p class="review-date">${r.date ? new Date(r.date).toDateString() : ''}</p>
           `;
 
           slide.appendChild(card);
           container.appendChild(slide);
-          
-         
+
           if (!window.reviewImages) window.reviewImages = [];
-          window.reviewImages[index] = r.images;
+          window.reviewImages[index] = r.images || [];
         });
 
-      
+        // update CSS variable for star color (in case Swiper re-renders)
+        document.documentElement.style.setProperty('--review-star-color', blockSettings.starColor);
+
         initSwiper();
       } catch (err) {
         console.error("Error fetching reviews:", err);
@@ -158,45 +162,21 @@
         spaceBetween: 20,
         grabCursor: true,
         loop: false,
-        
-       
         breakpoints: {
-          // Mobile
-          320: {
-            slidesPerView: 1,
-            spaceBetween: 15
-          },
-          // Tablet
-          768: {
-            slidesPerView: 2,
-            spaceBetween: 20
-          },
-          // Desktop
-          1024: {
-            // Use the setting for desktop view
-            slidesPerView: blockSettings.desktopCards,
-            spaceBetween: 24
-          }
+          320: { slidesPerView: 1, spaceBetween: 15 },
+          768: { slidesPerView: 2, spaceBetween: 20 },
+          1024: { slidesPerView: blockSettings.desktopCards, spaceBetween: 24 }
+        },
+        navigation: {
+          nextEl: '.swiper-button-next',
+          prevEl: '.swiper-button-prev',
+        },
+        pagination: {
+          el: '.swiper-pagination',
+          clickable: true,
         }
       };
 
-    
-      if (blockSettings.showNavigation) {
-        swiperConfig.navigation = {
-          nextEl: '.swiper-button-next',
-          prevEl: '.swiper-button-prev',
-        };
-      }
-
-      // Add pagination if enabled
-      if (blockSettings.showPagination) {
-        swiperConfig.pagination = {
-          el: '.swiper-pagination',
-          clickable: true,
-        };
-      }
-
-      // Initialize Swiper only if the container exists
       const swiperElement = document.querySelector('.reviewSwiper');
       if (swiperElement) {
         swiperInstance = new Swiper(swiperElement, swiperConfig);
@@ -211,29 +191,26 @@
 
       const words = fullComment.split(" ");
       const shortComment = words.slice(0, 20).join(" ");
-      
+
       if (textElement.classList.contains("expanded")) {
-        // Switch back to short view
         textElement.innerHTML = `"${shortComment}..." <span class="read-more" onclick="toggleReadMore(${index}, \`${fullComment.replace(/`/g, '\\`')}\`)">Read More</span>`;
         textElement.classList.remove("expanded");
       } else {
-        // Switch to full view
         textElement.innerHTML = `"${fullComment}" <span class="read-less" onclick="toggleReadMore(${index}, \`${fullComment.replace(/`/g, '\\`')}\`)">Read Less</span>`;
         textElement.classList.add("expanded");
       }
     };
 
-   
     let currentReviewIndex = 0;
     let currentImageIndex = 0;
 
     window.openGallery = function(reviewIndex, imageIndex) {
       currentReviewIndex = reviewIndex;
       currentImageIndex = imageIndex;
-      
+
       const modal = document.getElementById("image-gallery-modal");
       const modalImg = document.getElementById("gallery-modal-image");
-      
+
       if (modal && modalImg && window.reviewImages[reviewIndex]) {
         modal.style.display = "flex";
         modalImg.src = window.reviewImages[reviewIndex][imageIndex];
@@ -252,19 +229,18 @@
     window.navigateGallery = function(direction) {
       const images = window.reviewImages[currentReviewIndex];
       if (!images || images.length === 0) return;
-      
+
       currentImageIndex += direction;
-      
+
       if (currentImageIndex < 0) currentImageIndex = images.length - 1;
       if (currentImageIndex >= images.length) currentImageIndex = 0;
-      
+
       const modalImg = document.getElementById("gallery-modal-image");
       if (modalImg) {
         modalImg.src = images[currentImageIndex];
       }
     };
 
-    // Close on Escape key and navigate with arrows
     document.addEventListener("keydown", (e) => {
       if (document.getElementById("image-gallery-modal").style.display === "flex") {
         if (e.key === "Escape") window.closeGallery();
@@ -273,10 +249,7 @@
       }
     });
 
-    // Load reviews on initial page load
     document.addEventListener("DOMContentLoaded", loadScrollableReviews);
-    
-    // Also try to load after a short delay in case of dynamic block rendering
     setTimeout(loadScrollableReviews, 500);
 
   })();
@@ -288,13 +261,14 @@
     padding: 50px 20px;
     background: linear-gradient(135deg, #fff, #f9f9f9);
     text-align: center;
+    color: var(--review-text-color);
   }
 
   .review-heading {
     font-size: 28px;
     font-weight: 700;
     margin-bottom: 30px;
-    color: #222;
+    color: var(--review-text-color);
   }
 
   /* Swiper Container */
@@ -302,8 +276,7 @@
     width: 100%;
     padding: 20px 0 60px 0;
     position: relative;
-    /* Ensure no cumulative layout shift */
-    min-height: 450px; 
+    min-height: 450px;
   }
 
   .swiper-slide {
@@ -326,6 +299,7 @@
     height: 100%;
     display: flex;
     flex-direction: column;
+    color: var(--review-text-color);
   }
 
   .scroll-review-card:hover {
@@ -357,21 +331,27 @@
   .review-name {
     font-size: 16px;
     font-weight: 600;
-    color: #222;
+    color: var(--review-text-color);
     margin: 0 0 4px 0;
   }
 
   .review-stars {
-    color: #FFD700;
-    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
     margin: 0;
     line-height: 1;
   }
 
-  
+  .svg-star {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Review text */
   .review-text {
     font-size: 14px;
-    color: #444;
+    color: var(--review-text-color);
     margin: 0 0 16px 0;
     line-height: 1.6;
   }
@@ -392,12 +372,11 @@
     text-decoration: underline;
   }
 
-  
   .review-gallery-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 8px;
-    margin-top: auto; /* Push gallery to the bottom of the card */
+    margin-top: auto;
     margin-bottom: 12px;
   }
 
@@ -419,14 +398,12 @@
     transform: scale(1.05);
   }
 
-
   .review-date {
     font-size: 12px;
     color: #999;
     margin: 0;
   }
 
- 
   .swiper-button-next,
   .swiper-button-prev {
     color: #007bff;
@@ -451,7 +428,6 @@
     font-weight: bold;
   }
 
-  /* Swiper Pagination */
   .swiper-pagination {
     bottom: 20px !important;
   }
@@ -493,14 +469,8 @@
   }
 
   @keyframes zoomIn {
-    from {
-      transform: scale(0.8);
-      opacity: 0;
-    }
-    to {
-      transform: scale(1);
-      opacity: 1;
-    }
+    from { transform: scale(0.8); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
   }
 
   .gallery-close {
@@ -515,9 +485,7 @@
     z-index: 10000;
   }
 
-  .gallery-close:hover {
-    color: #bbb;
-  }
+  .gallery-close:hover { color: #bbb; }
 
   .gallery-nav {
     position: absolute;
@@ -534,29 +502,15 @@
     z-index: 10000;
   }
 
-  .gallery-nav:hover {
-    background-color: rgba(255, 255, 255, 0.4);
-  }
+  .gallery-nav:hover { background-color: rgba(255, 255, 255, 0.4); }
 
-  .gallery-prev {
-    left: 20px;
-  }
-
-  .gallery-next {
-    right: 20px;
-  }
+  .gallery-prev { left: 20px; }
+  .gallery-next { right: 20px; }
 
   /* Responsive */
   @media (max-width: 767px) {
-    .review-gallery-grid {
-      grid-template-columns: repeat(2, 1fr);
-    }
-
-    /* Keep navigation hidden on mobile, relying on swipe */
-    .swiper-button-next,
-    .swiper-button-prev {
-      display: none;
-    }
+    .review-gallery-grid { grid-template-columns: repeat(2, 1fr); }
+    .swiper-button-next, .swiper-button-prev { display: none; }
   }
 {% endstyle %}
 
@@ -589,18 +543,16 @@
       "default": "#ffffff"
     },
     {
-      "type": "checkbox",
-      "id": "show_navigation",
-      "label": "Show Navigation Buttons",
-      "default": true,
-      "info": "Display left/right arrow buttons"
+      "type": "color",
+      "id": "text_color",
+      "label": "Text Color (applies to all text)",
+      "default": "#222222"
     },
     {
-      "type": "checkbox",
-      "id": "show_pagination",
-      "label": "Show Pagination Dots",
-      "default": true,
-      "info": "Display pagination dots at bottom"
+      "type": "color",
+      "id": "star_color",
+      "label": "Star Color",
+      "default": "#FFD700"
     }
   ]
 }

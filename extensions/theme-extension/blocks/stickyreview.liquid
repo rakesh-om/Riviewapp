@@ -1,14 +1,27 @@
 {% comment %}
   App Block: Sticky Review Notification Banner - Enhanced Version
   Features: Click to expand vertical review panel with animation and Swiper carousel.
-  NOTE: This block requires a Shopify theme app extension environment to access block.settings.
+  Data Source: shop.metafields.sticky_review_settings.settings (JSON from Admin app)
 {% endcomment %}
+
+{% liquid
+  assign sticky_settings_raw = shop.metafields.sticky_review_settings.settings.value | default: '{}' 
+  assign sticky_settings = sticky_settings_raw | parse_json
+%}
+
+
+
 
 <!-- Swiper CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
 
 <!-- Sticky Notification -->
-<div id="sticky-review-notification" class="sticky-review-container" style="display: none;" onclick="openReviewPanel()">
+<div
+  id="sticky-review-notification"
+  class="sticky-review-container position-{{ sticky_settings.position | default: 'bottom-left' }}"
+  style="display: none;"
+  onclick="openReviewPanel()"
+>
   <button class="sticky-review-close" onclick="closeStickyReview(event)">×</button>
   
   <div class="swiper stickyReviewSwiper">
@@ -22,7 +35,7 @@
   </div>
 </div>
 
-<!-- Expandable Review Panel -->
+
 <div id="review-panel" class="review-panel" style="display: none;">
   <div class="review-panel-header">
     <div class="review-panel-title">
@@ -30,7 +43,7 @@
       <svg class="google-logo" viewBox="0 0 533 544" xmlns="http://www.w3.org/2000/svg"><path d="M533 276c0-18-1.7-36.4-5.2-54H274v102h147c-6 32.5-22.3 59-46 76v75h96c56.8-52.6 90-131 90-209z" fill="#4285F4"/><path d="M274 544c70.8 0 130.3-23 173.3-62.7l-96-75c-26 17-59 27-97 27-74 0-137.5-50-160.3-117l-100 78C73 477 167 544 274 544z" fill="#34A853"/><path d="M113.7 327c-5.5-17-8.7-35.3-8.7-54s3.2-37 8.7-54l-100-78c-12 28-18.7 59-18.7 94 0 34.6 6.7 65.6 18.7 94l100-78z" fill="#FBBC04"/><path d="M274 160c41 0 77 14 105 40l84-82c-50-46-118-74-189-74-107 0-201 67-248 160l100 78C136.5 210 200 160 274 160z" fill="#EA4335"/></svg>
       <div class="review-panel-rating">
         <span class="rating-number">4.7</span>
-        <span class="rating-stars" style="color: {{ block.settings.star_color | default: '#FFD700' }};">⭐⭐⭐⭐⭐</span>
+        <span class="rating-stars" id="header-rating-stars"></span>
         <span class="rating-count">(193876)</span>
       </div>
     </div>
@@ -52,61 +65,61 @@
 
 <script>
   (function() {
-    // Global scope variables
+  
     const blockSettings = {
-      position: "{{ block.settings.position }}",
-      autoScrollDelay: {{ block.settings.auto_scroll_delay | times: 1000 }},
-      showCloseButton: {{ block.settings.show_close_button }},
-      bgColor: "{{ block.settings.bg_color }}",
-      textColor: "{{ block.settings.text_color }}",
-      starColor: "{{ block.settings.star_color }}"
+      position: "{{ sticky_settings.position | default: 'bottom-left' }}",
+      autoScrollDelay: {{ sticky_settings.autoScrollDelay | default: 3 | times: 1000 }},
+      showCloseButton: {{ sticky_settings.showCloseButton | default: true | json }},
+      bgColor: "{{ sticky_settings.bgColor | default: '#ffffff' }}",
+      textColor: "{{ sticky_settings.textColor }}",
+      starColor: "{{ sticky_settings.starColor }}"
     };
 
+    console.log("🧩 blockSettings from metafield:", blockSettings);
+    console.log("getting --1", blockSettings.textColor);
+
+    // Function to generate SVG stars
+    function generateStarSVG(rating, color, size = 16) {
+      const starSize = size;
+      const totalWidth = starSize * 5;
+      const svgString = `
+        <svg width="${totalWidth}" height="${starSize}" viewBox="0 0 100 20" style="display: inline-block; vertical-align: middle; margin: 0 4px;">
+          ${Array.from({ length: 5 }, (_, i) => {
+            const x = i * 20 + 10;
+            return `<polygon points="${x},2 ${x + 2},8 ${x + 8},8 ${x + 3},12 ${x + 5},18 ${x},14 ${x - 5},18 ${x - 3},12 ${x - 8},8 ${x - 2},8" fill="${i < rating ? color : '#ddd'}" stroke="${color}" stroke-width="0.5"/>`;
+          }).join('')}
+        </svg>
+      `;
+      return svgString;
+    }
+
     let swiperInstance = null;
-    // Use localStorage for a more persistent "closed" state across sessions, 
-    // but the original used sessionStorage, so we'll stick to that for now.
     let isClosed = sessionStorage.getItem('stickyReviewClosed') === 'true'; 
-    let allReviews = []; // Stores all fetched reviews
+    let allReviews = [];
 
-    // Constant for the Google source icon
-    const GOOGLE_ICON_SVG = '<svg class="review-source-icon" viewBox="0 0 533 544" xmlns="http://www.w3.org/2000/svg"><path d="M533 276c0-18-1.7-36.4-5.2-54H274v102h147c-6 32.5-22.3 59-46 76v75h96c56.8-52.6 90-131 90-209z" fill="#4285F4"/><path d="M274 544c70.8 0 130.3-23 173.3-62.7l-96-75c-26 17-59 27-97 27-74 0-137.5-50-160.3-117l-100 78C73 477 167 544 274 544z" fill="#34A853"/><path d="M113.7 327c-5.5-17-8.7-35.3-8.7-54s3.2-37 8.7-54l-100-78c-12 28-18.7 59-18.7 94 0 34.6 6.7 65.6 18.7 94l100-78z" fill="#FBBC04"/><path d="M274 160c41 0 77 14 105 40l84-82c-50-46-118-74-189-74-107 0-201 67-248 160l100 78C136.5 210 200 160 274 160z" fill="#EA4335"/></svg>';
-
-
-    // --- Utility Functions ---
+    const GOOGLE_ICON_SVG =
+      '<svg class="review-source-icon" viewBox="0 0 533 544" xmlns="http://www.w3.org/2000/svg"><path d="M533 276c0-18-1.7-36.4-5.2-54H274v102h147c-6 32.5-22.3 59-46 76v75h96c56.8-52.6 90-131 90-209z" fill="#4285F4"/><path d="M274 544c70.8 0 130.3-23 173.3-62.7l-96-75c-26 17-59 27-97 27-74 0-137.5-50-160.3-117l-100 78C73 477 167 544 274 544z" fill="#34A853"/><path d="M113.7 327c-5.5-17-8.7-35.3-8.7-54s3.2-37 8.7-54l-100-78c-12 28-18.7 59-18.7 94 0 34.6 6.7 65.6 18.7 94l100-78z" fill="#FBBC04"/><path d="M274 160c41 0 77 14 105 40l84-82c-50-46-118-74-189-74-107 0-201 67-248 160l100 78C136.5 210 200 160 274 160z" fill="#EA4335"/></svg>';
 
     function getTimeAgo(date) {
       const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-      
       let interval = seconds / 31536000;
       if (interval > 1) return Math.floor(interval) + " years ago";
-      
       interval = seconds / 2592000;
       if (interval > 1) return Math.floor(interval) + " months ago";
-      
       interval = seconds / 86400;
       if (interval > 1) return Math.floor(interval) + " days ago";
-      
       interval = seconds / 3600;
       if (interval > 1) return Math.floor(interval) + " hours ago";
-      
       interval = seconds / 60;
       if (interval > 1) return Math.floor(interval) + " minutes ago";
-      
       return "a moment ago";
     }
     
-    // --- Sticky Banner Logic ---
-
     async function loadStickyReviews() {
       const wrapper = document.getElementById("sticky-review-wrapper");
       if (!wrapper) return;
 
       try {
-        // NOTE: Replace this placeholder URL with your actual API endpoint for production
-        // Using a mock data structure as the endpoint is unavailable in this environment
-        const apiUrl = "https://mock.example.com/api/reviews";
-        
-        // Mock Data to ensure functionality
         const mockData = {
           reviews: [
             { id: 1, name: "Jessica A.", rating: 5, comment: "Amazing product! Fast shipping and excellent quality.", date: new Date(Date.now() - 3600000).toISOString(), profileImage: "https://i.pravatar.cc/100?img=11", verified: true },
@@ -118,29 +131,27 @@
           ]
         };
 
-        // Simulate fetch delay and use mock data
         const data = await new Promise(resolve => setTimeout(() => resolve(mockData), 500));
 
         if (!data || !data.reviews || data.reviews.length === 0) return;
 
-        allReviews = data.reviews; // Store for the expandable panel
+        allReviews = data.reviews;  
 
         wrapper.innerHTML = "";
 
-        // Create slides for each review (showing latest 5 in the carousel)
         data.reviews.slice(0, 5).forEach((review) => {
           const slide = document.createElement("div");
           slide.className = "swiper-slide";
-          const stars = "⭐".repeat(review.rating);
+          const starSVG = generateStarSVG(review.rating, blockSettings.starColor, 14);
           
           slide.innerHTML = `
-            <div class="sticky-review-content" style="background-color: ${blockSettings.bgColor}; color: ${blockSettings.textColor};">
+            <div class="sticky-review-content" style="background-color: ${blockSettings.bgColor};">
               <div class="sticky-review-avatar">
                 <img src="${review.profileImage}" alt="${review.name}" onerror="this.onerror=null; this.src='https://i.pravatar.cc/100?img=1';">
               </div>
               <div class="sticky-review-text">
-                <div class="sticky-review-stars" style="color: ${blockSettings.starColor};">
-                  ${stars}
+                <div class="sticky-review-stars">
+                  ${starSVG}
                 </div>
                 <div class="sticky-review-message">
                   <strong>${review.rating} Star Rating</strong> by ${review.name}
@@ -161,9 +172,8 @@
 
       } catch (err) {
         console.error("❌ Error fetching sticky reviews:", err);
-        // Fallback content in case of error
         const sticky = document.getElementById("sticky-review-notification");
-        const loadingContent = sticky.querySelector('.sticky-review-loading');
+        const loadingContent = sticky?.querySelector('.sticky-review-loading');
         if (loadingContent) {
           loadingContent.textContent = "Error loading reviews.";
           loadingContent.style.color = "red";
@@ -185,34 +195,27 @@
           delay: autoplayDelay,
           disableOnInteraction: false,
         },
-        speed: 800, // Faster transition for a snappier feel
+        speed: 800,
         effect: 'slide',
       });
     }
 
-    // --- Panel Interaction Logic ---
-
-    // Exposed to the global window object for HTML onclick
     window.openReviewPanel = function() {
       const sticky = document.getElementById("sticky-review-notification");
       const panel = document.getElementById("review-panel");
       const overlay = document.getElementById("review-panel-overlay");
       const panelContent = document.getElementById("review-panel-content");
 
-      // 1. Hide the sticky banner immediately
       sticky.style.display = "none";
 
-      // 2. Prepare panel and overlay for animation
       overlay.style.display = "block";
-      panel.style.display = "flex"; // Use flex to support header/content layout
+      panel.style.display = "flex";
 
-      // 3. Trigger CSS transition (using rAF for reliable transition start)
       requestAnimationFrame(() => {
         overlay.classList.add("active");
         panel.classList.add("active");
       });
 
-      // 4. Populate with all reviews
       panelContent.innerHTML = "";
       
       if (allReviews.length === 0) {
@@ -224,7 +227,7 @@
         const reviewCard = document.createElement("div");
         reviewCard.className = "review-card";
         
-        const stars = "⭐".repeat(review.rating);
+        const starSVG = generateStarSVG(review.rating, blockSettings.starColor, 16);
         const verifiedBadge = review.verified ? '<span class="verified-badge">Verified Buyer</span>' : '';
         
         reviewCard.innerHTML = `
@@ -239,8 +242,8 @@
               </div>
             </div>
           </div>
-          <div class="review-card-stars" style="color: ${blockSettings.starColor};">
-            ${stars}
+          <div class="review-card-stars">
+            ${starSVG}
           </div>
           <div class="review-card-text">
             ${review.comment || 'Great experience!'}
@@ -251,11 +254,9 @@
         panelContent.appendChild(reviewCard);
       });
       
-      // Scroll to top of the panel content
       panelContent.scrollTop = 0;
     };
 
-    // Exposed to the global window object for HTML onclick
     window.closeReviewPanel = function(event) {
       if (event) event.stopPropagation();
       
@@ -263,25 +264,21 @@
       const panel = document.getElementById("review-panel");
       const overlay = document.getElementById("review-panel-overlay");
       
-      // 1. Trigger reverse CSS transition
       panel.classList.remove("active");
       overlay.classList.remove("active");
       
-      // 2. Wait for transition (300ms) then set display: none
       setTimeout(() => {
         panel.style.display = "none";
         overlay.style.display = "none";
         
-        // 3. Show sticky banner again, but only if it wasn't permanently closed
         isClosed = sessionStorage.getItem('stickyReviewClosed') === 'true'; 
         if (!isClosed) {
            sticky.style.display = "block";
         }
         
-      }, 300); // Matches CSS transition duration
+      }, 300);
     };
 
-    // Exposed to the global window object for HTML onclick
     window.closeStickyReview = function(event) {
       if (event) event.stopPropagation();
       
@@ -290,12 +287,7 @@
       document.getElementById("sticky-review-notification").style.display = "none";
     };
 
-    // --- Initialization ---
     function applySettings() {
-      const container = document.getElementById("sticky-review-notification");
-      // Use block.settings.position to set the class for positioning
-      container.classList.add('position-' + (blockSettings.position || 'bottom-left'));
-      
       if (!blockSettings.showCloseButton) {
         const closeBtn = document.querySelector('.sticky-review-close');
         if (closeBtn) closeBtn.style.display = 'none';
@@ -303,11 +295,14 @@
     }
 
     document.addEventListener('DOMContentLoaded', function() {
-      // Re-check sessionStorage on load
       isClosed = sessionStorage.getItem('stickyReviewClosed') === 'true'; 
       if (!isClosed) {
         applySettings();
-        // Delay load to simulate external loading and allow initial page load
+        // Generate header stars
+        const headerStarsContainer = document.getElementById('header-rating-stars');
+        if (headerStarsContainer) {
+          headerStarsContainer.innerHTML = generateStarSVG(5, blockSettings.starColor, 18);
+        }
         setTimeout(() => {
           loadStickyReviews();
         }, 1000); 
@@ -319,7 +314,7 @@
 
 {% style %}
   :root {
-    --color-primary: #1a73e8; /* Google Blue equivalent */
+    --color-primary: #1a73e8;
     --color-text-dark: #202124;
     --color-text-medium: #5f6368;
     --color-background-light: #f9f9f9;
@@ -330,15 +325,13 @@
   
   * {
     box-sizing: border-box;
-    /* Use a clean, modern system font stack */
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
   }
 
-  /* Sticky Notification Styles */
   .sticky-review-container {
     position: fixed;
     z-index: 9999;
-    max-width: 330px; /* Slightly wider for better presentation */
+    max-width: 330px;
     width: calc(100% - 40px);
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
     border-radius: var(--border-radius);
@@ -353,7 +346,6 @@
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
   }
 
-  /* Positioning classes from Liquid settings */
   .position-bottom-left { bottom: 20px; left: 20px; }
   .position-bottom-right { bottom: 20px; right: 20px; }
   .position-top-left { top: 20px; left: 20px; }
@@ -376,7 +368,7 @@
     border-radius: 50%;
     cursor: pointer;
     font-size: 16px;
-    line-height: 1;
+    lineHeight: 1;
     z-index: 10;
     display: flex;
     align-items: center;
@@ -387,12 +379,12 @@
 
   .sticky-review-close:hover { background: rgba(0, 0, 0, 0.7); }
 
-  .stickyReviewSwiper { width: 100%; height: 85px; } /* Slightly reduced height */
+  .stickyReviewSwiper { width: 100%; height: 85px; }
 
   .sticky-review-content {
     display: flex;
     align-items: center;
-    gap: 15px; /* Increased gap */
+    gap: 15px;
     padding: 15px;
     height: 85px;
   }
@@ -402,7 +394,7 @@
     height: 55px;
     border-radius: 50%;
     object-fit: cover;
-    border: 3px solid rgba(0, 0, 0, 0.05); /* Added subtle border */
+    border: 3px solid rgba(0, 0, 0, 0.05);
   }
   
   .sticky-review-text { 
@@ -413,12 +405,17 @@
     overflow: hidden;
   }
   .sticky-review-stars { font-size: 14px; margin-bottom: 4px; line-height: 1; }
-  .sticky-review-message { font-size: 14px; font-weight: 600; margin-bottom: 2px; line-height: 1.4; color: var(--color-text-dark); }
+  .sticky-review-message {  font-size: 14px; font-weight: 600; margin-bottom: 2px; line-height: 1.4; }
   .sticky-review-message strong { font-weight: 700; }
-  .sticky-review-time { font-size: 12px; color: var(--color-text-medium); opacity: 0.8; }
+  .sticky-review-time { font-size: 12px; color: {{ sticky_settings.textColor | default: '#ffff' }}; opacity: 0.8; }
   .sticky-review-loading { padding: 20px; text-align: center; font-size: 14px; color: var(--color-text-medium); }
+   
 
-  /* Review Panel Overlay */
+  .sticky-review-message {
+  color: {{ sticky_settings.textColor | default: '#ffff' }};
+}
+
+
   .review-panel-overlay {
     position: fixed;
     top: 0;
@@ -433,11 +430,10 @@
 
   .review-panel-overlay.active { opacity: 1; }
 
-  /* Review Panel (Slides in from the right) */
   .review-panel {
     position: fixed;
     top: 0;
-    right: -450px; /* Hidden position */
+    right: -450px;
     width: 100%;
     max-width: 450px;
     height: 100vh;
@@ -446,10 +442,10 @@
     z-index: 10001;
     display: flex;
     flex-direction: column;
-    transition: right var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1); /* Enhanced transition curve */
+    transition: right var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .review-panel.active { right: 0; } /* Visible position */
+  .review-panel.active { right: 0; }
 
   .review-panel-header {
     padding: 20px 25px;
@@ -461,15 +457,14 @@
     flex-shrink: 0;
   }
   
- .review-panel-title {
+  .review-panel-title {
     display: flex;
-    /* flex-direction: column; */
     align-items: center;
     text-align: center;
     gap: 10px;
-}
+  }
 
-  .google-logo { height: 26px; width: auto; margin-bottom: 8px; } /* Improved logo size */
+  .google-logo { height: 26px; width: auto; margin-bottom: 8px; }
 
   .review-panel-rating {
     display: flex;
@@ -501,11 +496,10 @@
 
   .review-panel-content {
     flex: 1;
-    overflow-y: auto; /* Scrollable review list */
+    overflow-y: auto;
     padding: 25px;
   }
 
-  /* Review Card */
   .review-card {
     background: #ffffff;
     border: 1px solid var(--color-border);
@@ -541,14 +535,11 @@
     display: inline-block;
   }
   
-  /* Mobile Responsive */
   @media (max-width: 768px) {
-    /* Full width panel on smaller screens */
     .review-panel { max-width: 100%; right: -100%; } 
   }
 
   @media (max-width: 480px) {
-    /* Center and make sticky banner full width on tiny screens */
     .sticky-review-container {
       max-width: calc(100% - 20px);
       bottom: 10px !important;
@@ -569,56 +560,6 @@
 {
   "name": "Sticky Review",
   "target": "body",
-  "settings": [
-    {
-      "type": "select",
-      "id": "position",
-      "label": "Position",
-      "options": [
-        { "value": "bottom-left", "label": "Bottom Left" },
-        { "value": "bottom-right", "label": "Bottom Right" },
-        { "value": "top-left", "label": "Top Left" },
-        { "value": "top-right", "label": "Top Right" }
-      ],
-      "default": "bottom-left",
-      "info": "Choose where to display the notification"
-    },
-    {
-      "type": "range",
-      "id": "auto_scroll_delay",
-      "label": "Auto Scroll Delay (seconds)",
-      "min": 1,
-      "max": 10,
-      "step": 1,
-      "unit": "s",
-      "default": 3,
-      "info": "Time before switching to next review"
-    },
-    {
-      "type": "checkbox",
-      "id": "show_close_button",
-      "label": "Show Close Button",
-      "default": true,
-      "info": "Allow users to close the notification"
-    },
-    {
-      "type": "color",
-      "id": "bg_color",
-      "label": "Background Color",
-      "default": "#ffffff"
-    },
-    {
-      "type": "color",
-      "id": "text_color",
-      "label": "Text Color",
-      "default": "#222222"
-    },
-    {
-      "type": "color",
-      "id": "star_color",
-      "label": "Star Color",
-      "default": "#FFD700"
-    }
-  ]
+  "settings": []
 }
 {% endschema %}

@@ -76,13 +76,13 @@ export const action = async ({ request }) => {
     }
 
     const result = await response.json();
-    console.log("🧩 Grid GraphQL response:", JSON.stringify(result, null, 2));
+    console.log(" Grid GraphQL response:", JSON.stringify(result, null, 2));
 
     const userErrors = result?.data?.shopMetafieldsSet?.userErrors;
     const metafields = result?.data?.shopMetafieldsSet?.metafields;
 
     if (userErrors?.length) {
-      console.error("⚠️ Grid metafield errors:", userErrors);
+      console.error(" Grid metafield errors:", userErrors);
       return json(
         { success: false, error: userErrors[0]?.message || "Metafield error" },
         { status: 400 }
