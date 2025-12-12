@@ -7,6 +7,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { VideoHelpCard } from "../components/Homepage/VideoHelpCard";
 import {HelpGuideCard} from "../components/Homepage/HelpGuideCard";
 import {DemoStoreCard } from "../components/Homepage/DemoStoreCard";
+import LoginBusiness from "../components/Homepage/LoginBusiness";
 
 import {
   AppProvider,
@@ -148,11 +149,14 @@ export default function Index() {
             </Box>
           </Card>
           
-       <DemoStoreCard />
+        <LoginBusiness />
 
-         <HelpGuideCard />
+        <DemoStoreCard />
 
-          <VideoHelpCard />
+        <HelpGuideCard />
+
+        <VideoHelpCard />
+
         </BlockStack>
           <div
     style={{
