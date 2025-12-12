@@ -38,6 +38,12 @@ export function WidgetSelector({ selectedWidget, onSelect }) {
             title="Scroll review"
             image="/store_locator.svg"
           />
+           <WidgetCard
+            selected={selectedWidget === "grid"}
+            onClick={() => onSelect("grid")}
+            title="Grid review"
+            image="/grid.svg"
+          />
 
           
 

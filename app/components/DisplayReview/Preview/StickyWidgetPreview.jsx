@@ -28,15 +28,9 @@ function StarRating({ rating = 5, color = "#FFD700", size = 16 }) {
 
 export function StickyWidgetPreview({ visible, settings }) {
   if (!visible) {
-    return (
-      <Card>
-        <Box padding="400">
-          <Text as="p" variant="bodySm" tone="subdued">
-            Select the Sticky review widget above to see the preview.
-          </Text>
-        </Box>
-      </Card>
-    );
+    // When not visible, render nothing so other widget previews aren't
+    // replaced by this placeholder. The parent decides which preview to show.
+    return null;
   }
 
   const positionStyle = (() => {

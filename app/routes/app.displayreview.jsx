@@ -5,9 +5,13 @@ import { AppProvider, Page } from "@shopify/polaris";
 import enTranslations from "@shopify/polaris/locales/en.json";
 
 import { StickySettings } from "../components/DisplayReview/Settings/StickySettings";
+import { ScrollSettings } from "../components/DisplayReview/Settings/ScrollSettings";
+import { GridSettings } from "../components/DisplayReview/Settings/GridSettings";
 
 import { WidgetSelector } from "../components/DisplayReview/Selector/WidgetSelector";
 import { StickyWidgetPreview } from "../components/DisplayReview/Preview/StickyWidgetPreview";
+import ScrollPreview from "../components/DisplayReview/Preview/ScrollPreview";
+import GridPreview from "../components/DisplayReview/Preview/GridPreview";
 
 
 export default function DisplayReviewPage() {
@@ -23,6 +27,28 @@ export default function DisplayReviewPage() {
       bgColor: "#ffffff",
       textColor: "#222222",
       starColor: "",
+    }
+    ,
+    scroll: {
+      review_heading: "Customer Reviews",
+      api_url: "",
+      desktop_cards: 3,
+      max_words: 15,
+      header_bg_color: "#FBEFF3",
+      header_text_color: "#111827",
+      star_color: "#FBBF24",
+      card_bg_color: "#FFFFFF",
+      card_text_color: "#111827",
+    }
+    ,
+    grid: {
+      desktop_cards: 4,
+      card_bg_color: "#ffffff",
+      border_color: "#e6e6e6",
+      star_color: "#FBBF24",
+      text_color: "#111827",
+      button_bg_color: "#0066cc",
+      button_text_color: "#ffffff",
     }
    
   });
@@ -46,12 +72,12 @@ export default function DisplayReviewPage() {
       });
       const data = await resp.json();
       if (data?.success) {
-        console.log('✅ Scroll settings saved', data);
+        console.log(' Scroll settings saved', data);
       } else {
         console.error(' Failed to save scroll settings', data);
       }
     } catch (err) {
-      console.error('❌ Error saving scroll settings', err);
+      console.error(' Error saving scroll settings', err);
     }
   };
 
@@ -81,6 +107,21 @@ export default function DisplayReviewPage() {
               />
             )}
 
+            {selectedWidget === "scroll" && (
+              <ScrollSettings
+                settings={currentSettings}
+                onChange={updateSettings}
+                onSave={saveScrollSettings}
+              />
+            )}
+
+            {selectedWidget === "grid" && (
+              <GridSettings
+                settings={currentSettings}
+                onChange={updateSettings}
+              />
+            )}
+
            
           </div>
 
@@ -104,6 +145,14 @@ export default function DisplayReviewPage() {
                 visible={selectedWidget === "sticky"}
                 settings={currentSettings}
               />
+
+              {selectedWidget === "scroll" && (
+                <ScrollPreview settings={currentSettings} />
+              )}
+
+              {selectedWidget === "grid" && (
+                <GridPreview settings={currentSettings} />
+              )}
 
              
             </div>
