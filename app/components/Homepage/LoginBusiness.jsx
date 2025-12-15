@@ -1,18 +1,70 @@
 // app/components/LoginBusiness.jsx
-import React, { useState } from "react";
-import { Card, Modal, Button, Text, Icon } from "@shopify/polaris";
+import React, { useState, useEffect } from "react";
+import { Card, Modal, Button, Text, Spinner } from "@shopify/polaris";
 
 export default function LoginBusiness({
-  imageSrc = "/loginem.svg", // replace with your image path (e.g. /assets/google-business.png)
+  imageSrc = "/loginem.svg",
   imageAlt = "Add your Google business",
-  videoUrl = "https://www.youtube.com/embed/dQw4w9WgXcQ", // embed url (YouTube embed)
+  videoUrl = "https://www.youtube.com/embed/dQw4w9WgXcQ",
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [connected, setConnected] = useState(false);
+  const [accounts, setAccounts] = useState(null);
+
+  const shop = typeof window !== "undefined" ? window.Shopify?.shop || "" : "";
+
+  useEffect(() => {
+    async function check() {
+      try {
+        setLoading(true);
+        const resp = await fetch(`/api.google.accounts?shop=${encodeURIComponent(shop)}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setConnected(true);
+          setAccounts(data.accounts);
+        } else {
+          setConnected(false);
+          setAccounts(null);
+        }
+      } catch (err) {
+        console.error(err);
+        setConnected(false);
+      } finally {
+        setLoading(false);
+      }
+    }
+    if (shop) check();
+    else setLoading(false);
+  }, [shop]);
+
+  const startGoogleAuth = async () => {
+    try {
+      const resp = await fetch(`/auth/google?shop=${encodeURIComponent(shop)}`);
+      if (!resp.ok) {
+        console.error("Failed to start Google auth");
+        return;
+      }
+      const { url } = await resp.json();
+      // use top-level redirect to break out of Shopify admin iframe
+      try {
+        if (window.top && window.top.location) {
+          window.top.location.href = url;
+        } else {
+          window.location.href = url;
+        }
+      } catch (e) {
+        // fallback if cross-origin prevents access to window.top
+        window.location.href = url;
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   return (
     <>
       <Card sectioned>
-        {/* Container to mimic screenshot spacing and centering */}
         <div
           style={{
             minHeight: 180,
@@ -25,7 +77,6 @@ export default function LoginBusiness({
             padding: "8px 4px",
           }}
         >
-       
           <div
             style={{
               width: "100%",
@@ -40,8 +91,6 @@ export default function LoginBusiness({
               Add your Google business
             </Text>
 
-            
-            
             <button
               onClick={() => setIsOpen(true)}
               style={{
@@ -61,7 +110,6 @@ export default function LoginBusiness({
             </button>
           </div>
 
-         
           <div
             style={{
               display: "flex",
@@ -85,50 +133,46 @@ export default function LoginBusiness({
             />
           </div>
 
-          {/* Centered messages just below the image */}
           <div style={{ maxWidth: 520 }}>
             <Text as="p" variant="headingSm" fontWeight="semibold">
-              No businesses added yet
+              {connected ? "Google Business connected" : "No businesses added yet"}
             </Text>
 
             <Text as="p" variant="bodyMd" style={{ color: "#6b6b6b", marginTop: 6 }}>
-              Add and manage your businesses.
+              {connected
+                ? accounts?.accounts?.length
+                  ? `Found ${accounts.accounts.length} account(s).`
+                  : "Connected — no accounts returned."
+                : "Add and manage your businesses."}
             </Text>
           </div>
 
-          {/* Button area (centered) */}
           <div style={{ marginTop: 8 }}>
-          
-<Button
-  onClick={async () => {
-    try {
-      // call your backend which returns the Google auth URL (or redirects directly)
-      const resp = await fetch('/auth/google?shop=' + encodeURIComponent(window.Shopify?.shop || ''));
-      // If your backend redirects directly you won't reach here.
-      // If backend returns JSON { url }, redirect top-level:
-      if (resp.ok) {
-        const data = await resp.json();
-        // Ensure we use top-level redirect so Shopify admin iframe doesn't block it
-        window.top.location.href = data.url;
-      } else {
-        console.error('Auth start failed');
-        // show UI error / toast as needed
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  }}
-  accessibilityLabel="Add business"
-  disclosure
->
-  Add business
-</Button>
-
+            {loading ? (
+              <Button onClick={() => {}} disabled>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Spinner size="small" />
+                  Checking...
+                </span>
+              </Button>
+            ) : connected ? (
+              <Button
+                onClick={() => {
+                  console.log("Connected - show accounts or manage");
+                }}
+                primary
+              >
+                Manage connected business
+              </Button>
+            ) : (
+              <Button onClick={startGoogleAuth} accessibilityLabel="Add business" disclosure>
+                Add business
+              </Button>
+            )}
           </div>
         </div>
       </Card>
 
-      {/* Modal with embedded video */}
       <Modal
         open={isOpen}
         onClose={() => setIsOpen(false)}

@@ -114,7 +114,7 @@ export default function Index() {
             Hi, {shopName || "there"} 👋
           </Text>
 
-          {/* Card: logo + app name in one row */}
+   
           <Card>
             <Box>
               <div

@@ -30,3 +30,19 @@ model Session {
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
 }
+
+model GoogleOAuthState {
+  id        Int      @id @default(autoincrement())
+  state     String   @unique
+  shop      String
+  createdAt DateTime @default(now())
+}
+
+model GoogleTokens {
+  id           Int      @id @default(autoincrement())
+  shop         String   @unique
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  updatedAt    DateTime @updatedAt
+}
