@@ -31,18 +31,17 @@ model Session {
   emailVerified Boolean?  @default(false)
 }
 
-model GoogleOAuthState {
-  id        Int      @id @default(autoincrement())
-  state     String   @unique
-  shop      String
-  createdAt DateTime @default(now())
+model GoogleTokens {
+  shop         String   @id
+  accessToken  String
+  refreshToken String   // Crucial for keeping connection alive > 1 hour
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
-model GoogleTokens {
-  id           Int      @id @default(autoincrement())
-  shop         String   @unique
-  accessToken  String
-  refreshToken String
-  expiresAt    DateTime
-  updatedAt    DateTime @updatedAt
+model GoogleOAuthState {
+  state     String   @id
+  shop      String
+  createdAt DateTime @default(now())
 }

@@ -17,23 +17,24 @@ export const loader = async ({ request }) => {
 
   // make sure client id is present
   if (!process.env.GOOGLE_CLIENT_ID) {
-    console.error("Missing GOOGLE_CLIENT_ID environment variable. Set GOOGLE_CLIENT_ID to your Google OAuth client ID.");
+    console.error("Missing GOOGLE_CLIENT_ID environment variable.");
     return json({ error: "Missing GOOGLE_CLIENT_ID" }, { status: 500 });
   }
 
-  // prefer explicit env var, otherwise construct a redirect URI from request origin
-  // NOTE: Google expects the path to be /auth/google/callback (not auth.google.callback)
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${url.origin}/auth/google/callback`;
-  if (!process.env.GOOGLE_REDIRECT_URI) {
-    // helpful log for local/dev setups
-    console.warn("GOOGLE_REDIRECT_URI not set; using computed redirect URI:", redirectUri);
-  }
+  // --- UPDATE START: Force HTTPS for ngrok ---
+  // url.origin might be 'http' locally, which Google rejects. We force 'https'.
+  const currentHost = "https://" + url.host;
+  
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${currentHost}/auth/google/callback`;
+  
+  console.log("DEBUG: Google Redirect URI being sent:", redirectUri);
+  // --- UPDATE END ---
 
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID || "",
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: "https://www.googleapis.com/auth/business.manage",
+    scope: "https://www.googleapis.com/auth/business.manage", // Make sure this scope is enabled in Google Console
     access_type: "offline",
     prompt: "consent",
     state,

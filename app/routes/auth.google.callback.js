@@ -11,18 +11,27 @@ export const loader = async ({ request }) => {
   }
 
   const stateRec = await prisma.googleOAuthState.findUnique({ where: { state } });
-  if (!stateRec) return new Response("Invalid state", { status: 400 });
+  if (!stateRec) return new Response("Invalid or expired state", { status: 400 });
 
-  // exchange code for tokens
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    console.error("Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET environment variables.");
     return new Response("Server misconfiguration: missing Google client credentials", { status: 500 });
   }
+
+  // --- FIX START: FORCE HTTPS ---
+  // Ensure this logic matches auth.google.js exactly.
+  // We ignore url.protocol (which might be http) and force https.
+  const currentHost = "https://" + url.host;
+  
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${currentHost}/auth/google/callback`;
+  
+  console.log("DEBUG: Callback using Redirect URI:", redirectUri);
+  // --- FIX END ---
+
   const params = new URLSearchParams({
     code,
-    client_id: process.env.GOOGLE_CLIENT_ID || "",
-    client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
-    redirect_uri: process.env.GOOGLE_REDIRECT_URI || "",
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    redirect_uri: redirectUri, 
     grant_type: "authorization_code",
   });
 
@@ -41,27 +50,26 @@ export const loader = async ({ request }) => {
   const tokenData = await tokenResp.json();
   const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000));
 
-  // upsert tokens for the shop
+  // Upsert tokens
   await prisma.googleTokens.upsert({
     where: { shop: stateRec.shop },
     update: {
       accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token ?? undefined,
+      // Only update refresh token if Google sent a new one
+      ...(tokenData.refresh_token && { refreshToken: tokenData.refresh_token }),
       expiresAt,
     },
     create: {
       shop: stateRec.shop,
       accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token ?? "",
+      refreshToken: tokenData.refresh_token || "", // Important: Refresh token is only sent once!
       expiresAt,
     },
   });
 
-  // delete state record (cleanup)
+  // Cleanup
   await prisma.googleOAuthState.delete({ where: { state } });
 
-  const redirectTo = `/apps/riview-app?connected=1&shop=${encodeURIComponent(stateRec.shop)}`;
-  return redirect(redirectTo);
+  // Redirect back to Shopify App Dashboard
+  return redirect(`/app?status=connected&shop=${stateRec.shop}`);
 };
-
-export const headers = () => ({ "Cache-Control": "no-store" });

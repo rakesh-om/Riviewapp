@@ -46,7 +46,7 @@ export default function LoginBusiness({
         return;
       }
       const { url } = await resp.json();
-      // use top-level redirect to break out of Shopify admin iframe
+      
       try {
         if (window.top && window.top.location) {
           window.top.location.href = url;
