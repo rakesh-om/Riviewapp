@@ -1,0 +1,237 @@
+{%- comment -%}
+  crousalreview.liquid
+  Theme App Extension block: Carousel review cards that:
+    - read appearance/settings from shop.metafields.riview.scroll_settings.value
+    - fetch review data from an API (configured here as http://localhost:5000/api/reviews)
+    - render a responsive, accessible horizontal carousel
+    - uses metafield: desktop_cards, star_color, card_bg_color, card_text_color, auto_scroll_delay
+{%- endcomment -%}
+
+{%- assign raw_settings = shop.metafields.riview.scroll_settings.value | default: '{}' -%}
+{%- assign s = raw_settings | parse_json -%}
+
+{%- assign desktop_cards = s.desktop_cards | default: 3 | times: 1 -%}
+{%- assign star_color = s.star_color | default: '#FBBF24' -%}
+{%- assign card_bg = s.card_bg_color | default: '#ffffff' -%}
+{%- assign card_text = s.card_text_color | default: '#111827' -%}
+{%- assign auto_scroll_delay = s.auto_scroll_delay | default: 0 | times: 1 -%}
+
+<style>
+/* Scoped carousel styles */
+.rvw-carousel {
+  --rvw-card-bg: {{ card_bg }};
+  --rvw-card-text: {{ card_text }};
+  --rvw-star-color: {{ star_color }};
+  --rvw-gap: 12px;
+  margin: 12px 0;
+  position: relative;
+  padding: 8px 44px; /* room for arrows */
+  box-sizing: border-box;
+  background: transparent;
+}
+.rvw-carousel-track {
+  display: flex;
+  gap: var(--rvw-gap);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+.rvw-carousel-card {
+  min-width: calc( (100% - (var(--cards-per-row) - 1) * var(--rvw-gap)) / var(--cards-per-row) );
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  background: var(--rvw-card-bg);
+  color: var(--rvw-card-text);
+  padding: 12px;
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+  box-sizing: border-box;
+}
+.rvw-card-header { display:flex; align-items:center; gap:8px; margin-bottom:8px; font-weight:600; }
+.rvw-stars { color: var(--rvw-star-color); font-weight:700; }
+
+/* arrows */
+.rvw-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.06);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+}
+.rvw-arrow-left { left: 6px; }
+.rvw-arrow-right { right: 6px; }
+.rvw-arrow:disabled { opacity: 0.45; cursor: default; }
+
+/* responsive card count */
+@media (max-width: 639px) {
+  :root { --cards-per-row: 1; }
+  .rvw-carousel { padding-left: 12px; padding-right: 12px; }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  :root { --cards-per-row: 2; }
+}
+@media (min-width: 1024px) {
+  :root { --cards-per-row: {{ desktop_cards }}; }
+}
+
+/* hide native scrollbar where supported */
+.rvw-carousel-track::-webkit-scrollbar { display: none; }
+</style>
+
+<div class="rvw-carousel" aria-label="Customer reviews carousel" data-auto-scroll-delay="{{ auto_scroll_delay }}">
+  <button class="rvw-arrow rvw-arrow-left" aria-label="Scroll left" type="button" data-action="left">&#8249;</button>
+  <div class="rvw-carousel-track" role="list" aria-live="polite" data-track>
+    <!-- cards rendered by JS -->
+  </div>
+  <button class="rvw-arrow rvw-arrow-right" aria-label="Scroll right" type="button" data-action="right">&#8250;</button>
+</div>
+
+<script>
+(function () {
+ 
+  const API_URL = "http://localhost:5000/api/reviews";
+
+  const root = document.currentScript.previousElementSibling; // .rvw-carousel
+  if (!root) return;
+  const track = root.querySelector('[data-track]');
+  const leftBtn = root.querySelector('[data-action="left"]');
+  const rightBtn = root.querySelector('[data-action="right"]');
+  const autoDelay = Number(root.getAttribute('data-auto-scroll-delay')) || 0;
+
+  // Helpers
+  const createCard = (r) => {
+    const a = document.createElement('article');
+    a.className = 'rvw-carousel-card';
+    a.setAttribute('role','listitem');
+    a.innerHTML = `
+      <div class="rvw-card-header">
+        <div style="width:40px;height:40px;border-radius:50%;overflow:hidden;flex-shrink:0;border:1px solid rgba(0,0,0,0.06);background:#fff;">
+          <img src="${r.profileImage || ''}" alt="${r.name || ''}" style="width:100%;height:100%;object-fit:cover" />
+        </div>
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;">
+            <div class="rvw-stars" aria-hidden="true">${renderStars(r.rating)}</div>
+            <strong style="font-size:13px">${escapeHtml(r.name || '')}</strong>
+          </div>
+          <div style="font-size:11px;color:rgba(0,0,0,0.6)">${escapeHtml(r.date || '')}</div>
+        </div>
+      </div>
+      <div style="font-size:14px;line-height:1.4;min-height:48px;margin-top:6px;">${escapeHtml(r.comment || '')}</div>
+      ${renderImages(r.images)}
+    `;
+    return a;
+  };
+
+  function renderStars(n) {
+    const full = Number(n) || 0;
+    let out = '';
+    for (let i=1;i<=5;i++){
+      out += (i<=full) ? '<span style="color:var(--rvw-star-color)">★</span>' : '<span style="color:#ddd">★</span>';
+    }
+    return out;
+  }
+
+  function renderImages(imgs){
+    if (!Array.isArray(imgs) || imgs.length === 0) return '';
+    const list = imgs.slice(0,3).map(u => `<img src="${u}" alt="" style="width:100%;max-height:72px;object-fit:cover;border-radius:6px;margin-top:8px;">`).join('');
+    return `<div class="rvw-images" aria-hidden="true">${list}</div>`;
+  }
+
+  function escapeHtml (str) {
+    if (typeof str !== 'string') return '';
+    return str.replace(/[&<>"']/g, function (m) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
+  }
+
+
+  async function loadReviews() {
+    
+    try {
+      const resp = await fetch(API_URL, { credentials: 'omit' });
+      if (!resp.ok) throw new Error('Network response not ok');
+      const payload = await resp.json();
+      const reviews = Array.isArray(payload?.reviews) ? payload.reviews : [];
+      // clear track
+      track.innerHTML = '';
+      if (reviews.length === 0) {
+        const empty = document.createElement('div');
+        empty.textContent = 'No reviews available';
+        empty.style.padding = '12px';
+        track.appendChild(empty);
+        updateArrows();
+        return;
+      }
+      reviews.forEach(r => {
+        const card = createCard(r);
+        track.appendChild(card);
+      });
+      // small delay to allow layout then update arrow state
+      setTimeout(updateArrows, 50);
+    } catch (err) {
+      console.error('RIVIEW: failed to load reviews', err);
+      track.innerHTML = '<div style="padding:12px;color:#555">Could not load reviews.</div>';
+      updateArrows();
+    }
+  }
+
+  // Scrolling helpers
+  const gapPx = () => parseInt(getComputedStyle(track).gap || 12,10) || 12;
+  function scrollByCard(direction) {
+    const card = track.querySelector('.rvw-carousel-card');
+    if (!card) return;
+    const cardWidth = card.getBoundingClientRect().width;
+    const distance = Math.round(cardWidth + gapPx());
+    track.scrollBy({ left: direction === 'left' ? -distance : distance, behavior: 'smooth' });
+  }
+
+  function updateArrows() {
+    leftBtn.disabled = track.scrollLeft <= 5;
+    rightBtn.disabled = Math.ceil(track.scrollLeft + track.clientWidth) >= track.scrollWidth - 5;
+  }
+
+  leftBtn.addEventListener('click', () => scrollByCard('left'));
+  rightBtn.addEventListener('click', () => scrollByCard('right'));
+  track.addEventListener('scroll', updateArrows);
+  window.addEventListener('resize', updateArrows);
+
+  
+  let autoTimer = null;
+  function startAutoScroll() {
+    if (autoDelay <= 0) return;
+    stopAutoScroll();
+    autoTimer = setInterval(() => {
+      if (Math.ceil(track.scrollLeft + track.clientWidth) >= track.scrollWidth - 5) {
+        track.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        scrollByCard('right');
+      }
+    }, autoDelay * 1000);
+  }
+  function stopAutoScroll(){ if (autoTimer) { clearInterval(autoTimer); autoTimer = null; } }
+  root.addEventListener('mouseenter', stopAutoScroll);
+  root.addEventListener('mouseleave', startAutoScroll);
+
+  // initialize
+  loadReviews().then(() => {
+    updateArrows();
+    startAutoScroll();
+  });
+
+})();
+</script>
+
+{%- schema -%}
+{
+  "name": "Riview Carousel Reviews",
+  "target": "section",
+  "settings": []
+}
+{%- endschema -%}

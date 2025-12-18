@@ -1,7 +1,4 @@
-// app/routes/app._index.jsx
-
 import { useEffect, useState } from "react";
-// Import useSubmit to handle disconnect actions
 import { useFetcher, useLoaderData, useSearchParams, useSubmit } from "react-router"; 
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { VideoHelpCard } from "../components/Homepage/VideoHelpCard";
@@ -18,6 +15,14 @@ import {
   Button,
   Banner,
   Layout,
+  Select,
+  TextField,
+  InlineStack,
+  ResourceList,
+  ResourceItem,
+  Thumbnail,
+  Avatar,
+  Spinner 
 } from "@shopify/polaris";
 
 import enTranslations from "@shopify/polaris/locales/en.json";
@@ -27,182 +32,238 @@ import prisma from "../db.server";
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
-
   let shopName = session?.shop || "";
   const shop = session.shop;
 
-  // 1. Shop ka naam fetch karo
+  // 1. Shop Name
   try {
     const response = await admin.graphql(`#graphql
-      query shopName {
-        shop {
-          name
-        }
-      }
+      query shopName { shop { name } }
     `);
-
     const data = await response.json();
-    if (data?.data?.shop?.name) {
-      shopName = data.data.shop.name;
-    }
-  } catch (error) {
-    console.error("Error fetching shop name:", error);
-  }
+    if (data?.data?.shop?.name) shopName = data.data.shop.name;
+  } catch (error) { console.error(error); }
 
-  // 2. Check karo ki Database mein token hai ya nahi
+  // 2. Token Check
   const tokenRecord = await prisma.googleTokens.findUnique({
     where: { shop: session.shop },
   });
 
-  return { 
-    shopName, 
-    shop, 
-    isConnected: !!tokenRecord 
-  };
+  return { shopName, shop, isConnected: !!tokenRecord };
 };
 
-export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  // ... product creation logic if you still need it ...
-  return {}; 
-};
+export const action = async ({ request }) => { return {}; };
 
 export default function Index() {
   const { shopName, shop, isConnected } = useLoaderData();
-  const fetcher = useFetcher();
-  const submit = useSubmit(); // 🔥 Hook for Disconnect Action
   const shopify = useAppBridge();
+  const submit = useSubmit();
   const [searchParams] = useSearchParams();
   
+  // ==============================
+  // 🟢 OPTION A STATES (OAuth)
+  // ==============================
+  const [locations, setLocations] = useState([]); 
+  const [selectedLocation, setSelectedLocation] = useState(""); 
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
+
+  const locationsFetcher = useFetcher(); 
+  const reviewsFetcher = useFetcher();   
   const showSuccessMessage = searchParams.get("success") === "1";
 
-  // --- 1. HANDLE GOOGLE LOGIN ---
+  // ==============================
+  // 🔵 OPTION B STATES (SerpApi)
+  // ==============================
+  const serpFetcher = useFetcher();
+  const [serpQuery, setSerpQuery] = useState("");
+  const [serpResults, setSerpResults] = useState([]); 
+  const [selectedSerpBusiness, setSelectedSerpBusiness] = useState(null);
+  const [serpError, setSerpError] = useState(null);
+
+  const isSerpLoading = serpFetcher.state === "submitting" || serpFetcher.state === "loading";
+
+  // --- 1. HANDLE GOOGLE LOGIN (OAuth) ---
   const handleGoogleLogin = async () => {
     setIsLoadingGoogle(true);
     try {
       const response = await fetch(`/auth/google?shop=${shop}`);
       const data = await response.json();
-
-      if (data.url) {
-        window.top.location.href = data.url;
-      } else {
-        console.error("No URL returned");
-        shopify.toast.show("Error starting Google Login");
-        setIsLoadingGoogle(false);
-      }
-    } catch (error) {
-      console.error("Google Login Error:", error);
-      shopify.toast.show("Connection Failed");
-      setIsLoadingGoogle(false);
-    }
+      if (data.url) window.top.location.href = data.url;
+      else setIsLoadingGoogle(false);
+    } catch (error) { setIsLoadingGoogle(false); }
   };
 
-  // --- 2. HANDLE DISCONNECT ---
+  // --- 2. HANDLE DISCONNECT (OAuth) ---
   const handleDisconnect = () => {
-    // Calls the action in api.google.disconnect.jsx
     submit({}, { method: "POST", action: "/api/google/disconnect" });
   };
 
-  // --- 3. FETCH REVIEWS LOGIC ---
-  const fetchReviews = () => {
-    fetcher.load("/api/google/reviews");
+  // --- 3. FETCH LOCATIONS (OAuth) ---
+  const fetchLocations = () => {
+    locationsFetcher.load("/api/google/locations");
   };
-  
-  const reviewsData = fetcher.data;
-  const isLoadingReviews = fetcher.state === "loading";
 
   useEffect(() => {
-    if (fetcher.data?.product?.id) {
-      shopify.toast.show("Product created");
+    if (locationsFetcher.data?.locations) {
+      setLocations(locationsFetcher.data.locations);
+      if(locationsFetcher.data.locations.length > 0) {
+        setSelectedLocation(locationsFetcher.data.locations[0].name);
+      }
     }
-  }, [fetcher.data?.product?.id, shopify]);
+  }, [locationsFetcher.data]);
 
+  // --- 4. FETCH REVIEWS (OAuth) ---
+  const fetchReviewsForSelected = () => {
+    if(!selectedLocation) return;
+    reviewsFetcher.submit(
+      { locationName: selectedLocation },
+      { method: "POST", action: "/api/google/reviews" }
+    );
+  };
+  
+  const oauthReviewsData = reviewsFetcher.data;
+  const isOauthLoading = reviewsFetcher.state === "submitting";
+
+  const locationOptions = locations.map(loc => ({
+    label: loc.title,
+    value: loc.name
+  }));
+
+  // ==============================
+  // 🟣 SERP API LOGIC (Option B)
+  // ==============================
+
+  useEffect(() => {
+    if (serpFetcher.data) {
+      // Error Handling
+      if (serpFetcher.data.error) {
+        setSerpError(serpFetcher.data.error);
+        shopify.toast.show(serpFetcher.data.error);
+      } 
+      // Search Results Success
+      else if (serpFetcher.data.type === "search_results") {
+        setSerpResults(serpFetcher.data.results);
+        setSelectedSerpBusiness(null); 
+        setSerpError(null);
+      } 
+      // Reviews Success
+      else if (serpFetcher.data.type === "reviews_data") {
+        setSelectedSerpBusiness(serpFetcher.data);
+        setSerpError(null);
+      }
+    }
+  }, [serpFetcher.data, shopify]);
+
+  const handleSerpSearch = () => {
+    if(!serpQuery) return;
+    setSerpError(null);
+    serpFetcher.submit(
+      { actionType: "search", query: serpQuery },
+      { method: "POST", action: "/api/serp" }
+    );
+  };
+
+  // 🔥 IMPORTANT UPDATE: Passing Title & Address to ensure correct business is found
+  const handleSerpSelect = (placeId, dataId, title, address) => {
+    setSerpError(null);
+    serpFetcher.submit(
+      { 
+        actionType: "reviews", 
+        placeId: placeId, 
+        dataId: dataId,
+        title: title,      // Main Param
+        address: address   // Main Param
+      }, 
+      { method: "POST", action: "/api/serp" }
+    );
+  };
+
+  // ==============================
+  // 🖥️ UI RENDER
+  // ==============================
   return (
     <AppProvider i18n={enTranslations}>
       <Page>
         <BlockStack gap="400">
-          <Text as="h1" variant="headingLg">
-            Hi, {shopName || "there"} 👋
-          </Text>
+          <Text as="h1" variant="headingLg">Hi, {shopName || "there"} 👋</Text>
 
-          {/* Success Banner */}
           {showSuccessMessage && (
-            <Banner
-              title="Google Account Connected Successfully!"
-              tone="success"
-              onDismiss={() => {}}
-            >
-              <p>You can now fetch and display your reviews.</p>
-            </Banner>
+            <Banner title="Google Account Connected Successfully!" tone="success" onDismiss={() => {}} />
           )}
 
           <Card>
             <Box>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <Box padding="200" borderRadius="200" background="bg-fill-subdued">
-                  <img
-                    src="/logo.jpg"
-                    alt="Riview App logo"
-                    style={{
-                      width: 50,
-                      height: 50,
-                      display: "block",
-                      borderRadius: "50%",
-                      objectFit: "cover",
-                    }}
-                  />
+                  <img src="/logo.jpg" alt="Riview App logo" style={{ width: 50, height: 50, borderRadius: "50%", objectFit: "cover" }} />
                 </Box>
-                <Text as="h1" variant="headingLg" fontWeight="semibold">
-                  Riview App
-                </Text>
+                <Text as="h1" variant="headingLg" fontWeight="semibold">Riview App</Text>
               </div>
             </Box>
           </Card>
 
           <Layout>
             <Layout.Section>
+              
+              {/* ========================================= */}
+              {/* 🟢 OPTION A: GOOGLE OAUTH (OWNER)       */}
+              {/* ========================================= */}
               <Card>
                 <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Google Business Profile Integration
-                  </Text>
+                  <Text as="h2" variant="headingMd">Option A: Connect My Business (Verified Owner)</Text>
+                  <Text tone="subdued" as="p">Use this if you are the owner and want to manage/reply to reviews.</Text>
 
                   {isConnected ? (
-                    // --- STATE: CONNECTED ---
                     <div style={{ marginTop: "10px" }}>
                       <Banner tone="success">
-                        <Text variant="bodyMd" as="p" fontWeight="bold">
-                          ✅ Status: Account Connected
-                        </Text>
+                        <Text variant="bodyMd" as="p" fontWeight="bold">✅ Status: Account Connected</Text>
                       </Banner>
 
-                      {/* --- FETCH REVIEWS BUTTON --- */}
                       <div style={{ marginTop: "20px", borderTop: "1px solid #eee", paddingTop: "20px" }}>
-                        <Button 
-                          onClick={fetchReviews} 
-                          variant="primary" 
-                          loading={isLoadingReviews}
-                        >
-                          Fetch My Reviews
-                        </Button>
+                        {/* Load Locations Button */}
+                        {locations.length === 0 && (
+                          <Button 
+                            onClick={fetchLocations} 
+                            loading={locationsFetcher.state === "loading"}
+                            variant="primary"
+                          >
+                            Load My Businesses
+                          </Button>
+                        )}
+
+                        {/* Dropdown & Fetch Button */}
+                        {locations.length > 0 && (
+                          <BlockStack gap="300">
+                             <Select
+                               label="Select Your Business Location"
+                               options={locationOptions}
+                               onChange={setSelectedLocation}
+                               value={selectedLocation}
+                             />
+                             <Button 
+                               onClick={fetchReviewsForSelected} 
+                               loading={isOauthLoading}
+                               variant="primary"
+                               disabled={!selectedLocation}
+                             >
+                               Fetch Reviews (OAuth)
+                             </Button>
+                          </BlockStack>
+                        )}
                       </div>
 
-                      {/* --- REVIEWS DISPLAY --- */}
-                      {reviewsData && (
+                      {/* OAuth Reviews Display */}
+                      {oauthReviewsData && (
                         <div style={{ marginTop: "20px", background: "#f4f6f8", padding: "15px", borderRadius: "8px" }}>
-                          {reviewsData.error ? (
-                            <p style={{color: "red"}}>Error: {reviewsData.error}</p>
+                          {oauthReviewsData.error ? (
+                            <p style={{color: "red"}}>Error: {oauthReviewsData.error}</p>
                           ) : (
                             <>
-                              <Text variant="headingSm" as="h3">
-                                Reviews for: {reviewsData.businessName}
-                              </Text>
+                              <Text variant="headingSm" as="h3">Your Reviews</Text>
                               <br/>
-                              {reviewsData.reviews.length === 0 && <p>No reviews found.</p>}
-                              
+                              {oauthReviewsData.reviews.length === 0 && <p>No reviews found.</p>}
                               <div style={{maxHeight: "300px", overflowY: "auto"}}>
-                                {reviewsData.reviews.map((review, index) => (
+                                {oauthReviewsData.reviews.map((review, index) => (
                                   <div key={index} style={{ marginBottom: "15px", padding: "10px", background: "white", borderRadius: "5px" }}>
                                     <strong>{review.reviewer.displayName}</strong>
                                     <div style={{margin: "5px 0"}}>
@@ -217,27 +278,17 @@ export default function Index() {
                         </div>
                       )}
 
-                      {/* --- DISCONNECT BUTTON --- */}
                       <div style={{ marginTop: "15px", borderTop: "1px solid #eee", paddingTop: "15px" }}>
-                        <Button 
-                            variant="primary" 
-                            tone="critical"
-                            onClick={handleDisconnect} // 🔥 Calls the disconnect logic
-                        >
+                        <Button variant="primary" tone="critical" onClick={handleDisconnect}>
                           Disconnect Account
                         </Button>
                       </div>
                     </div>
                   ) : (
-                    // --- STATE: NOT CONNECTED ---
                     <>
-                      <p>Connect your Google account to import reviews.</p>
+                      <p>Connect your Google account to import reviews securely.</p>
                       <div style={{ marginTop: "10px" }}>
-                        <Button
-                          onClick={handleGoogleLogin}
-                          loading={isLoadingGoogle}
-                          variant="primary"
-                        >
+                        <Button onClick={handleGoogleLogin} loading={isLoadingGoogle} variant="primary">
                           Connect Google Account
                         </Button>
                       </div>
@@ -245,6 +296,129 @@ export default function Index() {
                   )}
                 </BlockStack>
               </Card>
+
+              {/* Spacer */}
+              <Box paddingBlockStart="400"></Box>
+
+              {/* ========================================= */}
+              {/* 🔵 OPTION B: SERP API (PUBLIC SEARCH)   */}
+              {/* ========================================= */}
+              <Card>
+                <BlockStack gap="400">
+                  <div>
+                    <Text as="h2" variant="headingMd">Option B: Public Search (No Login Required)</Text>
+                    <p style={{color:"#666"}}>Search for any business to fetch reviews instantly without connecting an account.</p>
+                  </div>
+
+                  {/* Error Banner */}
+                  {serpError && (
+                    <Banner tone="critical" onDismiss={() => setSerpError(null)}>
+                      <p>{serpError}</p>
+                    </Banner>
+                  )}
+
+                  {/* Search Box */}
+                  <InlineStack gap="300" align="start" blockAlign="end">
+                    <div style={{flexGrow: 1}}>
+                        <TextField 
+                          label="Business Name + City" 
+                          value={serpQuery} 
+                          onChange={setSerpQuery} 
+                          placeholder="e.g. Orange Mantra Gurgaon"
+                          autoComplete="off"
+                          disabled={isSerpLoading}
+                        />
+                    </div>
+                    <Button 
+                        onClick={handleSerpSearch} 
+                        variant="primary" 
+                        loading={isSerpLoading}
+                        disabled={!serpQuery}
+                    >
+                        Search
+                    </Button>
+                  </InlineStack>
+
+                  {/* LOADING INDICATOR */}
+                  {isSerpLoading && (
+                    <Box padding="400" align="center"><Spinner accessibilityLabel="Loading" size="large" /></Box>
+                  )}
+
+                  {/* 1. Show List of Businesses found */}
+                  {serpResults.length > 0 && !selectedSerpBusiness && !isSerpLoading && (
+                    <Box paddingBlockStart="400" background="bg-surface-secondary" padding="300" borderRadius="200">
+                       <Text variant="headingSm" as="h3">Select Business:</Text>
+                       <ResourceList
+                          resourceName={{singular: 'business', plural: 'businesses'}}
+                          items={serpResults}
+                          renderItem={(item) => {
+                            const {place_id, title, address, rating, thumbnail, data_id} = item;
+                            const media = <Thumbnail source={thumbnail || ""} alt={title} size="medium" />;
+                            return (
+                              <ResourceItem
+                                id={place_id}
+                                media={media}
+                                // 🔥 FIX: Passing Title and Address explicitly
+                                onClick={() => handleSerpSelect(place_id, data_id, title, address)}
+                                accessibilityLabel={`View details for ${title}`}
+                              >
+                                <Text variant="bodyMd" fontWeight="bold" as="h3">{title}</Text>
+                                <div style={{fontSize: "12px"}}>{address}</div>
+                                <div style={{color: "#e6ac00", fontSize: "12px"}}>Rating: {rating} ⭐</div>
+                              </ResourceItem>
+                            );
+                          }}
+                        />
+                    </Box>
+                  )}
+
+                 {/* 2. Show Reviews for Selected Business */}
+                  {selectedSerpBusiness && !isSerpLoading && (
+                    <Box background="bg-surface-success" padding="400" borderRadius="200" borderColor="border">
+                       <BlockStack gap="300">
+                          <Banner tone="success" onDismiss={() => setSelectedSerpBusiness(null)}>
+                             <Text fontWeight="bold">Reviews Loaded for: {selectedSerpBusiness.businessName}</Text>
+                          </Banner>
+
+                          <BlockStack gap="200">
+                             <Text variant="headingLg" as="h2">{selectedSerpBusiness.businessName}</Text>
+                             <Text tone="subdued" as="span">{selectedSerpBusiness.rating} ⭐ Average Rating</Text>
+                          </BlockStack>
+
+                          {/* Reviews List with SAFETY CHECK */}
+                          <div style={{marginTop: "10px", maxHeight: "300px", overflowY: "auto", paddingRight:"5px", background: "white", padding: "10px", borderRadius: "8px"}}>
+                             {/* 🔥 FIX: Check if it is an Array AND has length */}
+                             {(!selectedSerpBusiness.reviews || !Array.isArray(selectedSerpBusiness.reviews) || selectedSerpBusiness.reviews.length === 0) ? (
+                                 <div style={{padding: "20px", textAlign: "center"}}>
+                                    <p>No text reviews available for this location.</p>
+                                    <p style={{fontSize: "12px", color: "#666"}}>(It might only have star ratings)</p>
+                                 </div>
+                             ) : (
+                                 selectedSerpBusiness.reviews.map((review, index) => (
+                                   <div key={index} style={{ marginBottom: "15px", padding: "15px", background: "#f9fafb", borderRadius: "8px", border:"1px solid #eee" }}>
+                                      <div style={{display: "flex", alignItems: "center", gap: "10px"}}>
+                                         <Avatar source={review.link} size="sm" name={review.user?.name}/>
+                                         <Text fontWeight="bold">{review.user?.name || "Google User"}</Text>
+                                      </div>
+                                      
+                                      <div style={{margin: "8px 0"}}>
+                                         {"⭐".repeat(Math.round(review.rating || 5))}
+                                         <span style={{fontSize:"12px", color:"#888", marginLeft:"10px"}}>{review.date}</span>
+                                      </div>
+                                      
+                                      <p style={{lineHeight: "1.5", fontSize: "14px"}}>{review.snippet || review.text}</p>
+                                   </div>
+                                 ))
+                             )}
+                          </div>
+
+                          <Button onClick={() => setSelectedSerpBusiness(null)}>Search Another</Button>
+                       </BlockStack>
+                    </Box>
+                  )}
+                </BlockStack>
+              </Card>
+
             </Layout.Section>
           </Layout>
 
@@ -255,15 +429,7 @@ export default function Index() {
         
         <div style={{ width: "100%", textAlign: "center", marginTop: "20px" }}>
           <p style={{ fontSize: "14px", color: "#555" }}>
-            Have any questions?{" "}
-            <a
-              href="/faq"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: "#007bff", textDecoration: "underline", fontWeight: "600" }}
-            >
-              Read FAQ
-            </a>
+            Have any questions? <a href="/faq" target="_blank" rel="noreferrer" style={{ color: "#007bff", textDecoration: "underline", fontWeight: "600" }}>Read FAQ</a>
           </p>
         </div>
       </Page>

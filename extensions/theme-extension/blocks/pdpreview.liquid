@@ -1,0 +1,788 @@
+
+<div class="pdp-review-preview" data-pdp-reviews>
+  <div class="pdp-review-header">
+    <h2 class="review-heading pdp-review-title">
+      {{ block.settings.pdpreview_heading }}
+    </h2>
+  </div>
+  <div class="pdp-review-container">
+    <button class="pdp-nav-btn pdp-nav-prev pdp-nav-side" aria-label="Previous review">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+    </button>
+    <div class="pdp-review-slider" id="pdp-review-slider">
+      <div class="pdp-card-loading">
+        <div class="pdp-spinner"></div>
+        <p>Loading reviews...</p>
+      </div>
+    </div>
+    <button class="pdp-nav-btn pdp-nav-next pdp-nav-side" aria-label="Next review">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+    </button>
+  </div>
+</div>
+<div class="pdp-review-modal" id="pdp-review-modal">
+  <div class="pdp-modal-overlay" onclick="closeReviewModal()"></div>
+  <div class="pdp-modal-content">
+    <button class="pdp-modal-close" onclick="closeReviewModal()" aria-label="Close">×</button>
+    <div class="pdp-modal-header">
+      <img src="" alt="" class="pdp-modal-avatar" id="modal-avatar" loading="lazy">
+      <div class="pdp-modal-info">
+        <h3 class="pdp-modal-name" id="modal-name"></h3>
+        <div class="pdp-modal-stars" id="modal-stars"></div>
+        <div class="pdp-modal-date" id="modal-date"></div>
+      </div>
+    </div>
+    <div class="pdp-modal-body">
+      <p class="pdp-modal-message" id="modal-message"></p>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  'use strict';
+  const CONFIG = {
+    apiUrl: "{{ block.settings.api_url }}",
+    autoScroll: {{ block.settings.enable_auto_scroll }},
+    scrollDelay: {{ block.settings.scroll_delay | times: 1000 }},
+    starColor: "{{ block.settings.star_color }}",
+    cardBgColor: "{{ block.settings.card_bg_color }}",
+    cardTextColor: "{{ block.settings.card_text_color }}",
+    maxWords: 15
+  };
+  let allReviews = [];
+  let currentIndex = 0;
+  let autoScrollInterval = null;
+  // Truncate text to max words
+  function truncateText(text, maxWords) {
+    if (!text) return '';
+    const words = text.trim().split(/\s+/);
+    if (words.length <= maxWords) return text;
+    return words.slice(0, maxWords).join(' ') + '...';
+  }
+ // Format date
+  function formatDate(dateString) {
+    const date = new Date(dateString);
+    const options = { year: 'numeric', month: 'long', day: 'numeric' };
+    return date.toLocaleDateString('en-US', options);
+  }
+
+  // Create star rating HTML (Now using SVG for professional look)
+  function createStars(rating, size = 20) {
+    let starsHtml = '';
+    // Used size=20 for card, size=24 for modal
+    const filledStar = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="0" style="margin-right: 2px;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14l-5-4.87 6.91-1.01L12 2z"></path></svg>`;
+    const emptyStar = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5" style="margin-right: 2px;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14l-5-4.87 6.91-1.01L12 2z"></path></svg>`;
+
+    for (let i = 1; i <= 5; i++) {
+      starsHtml += i <= rating ? filledStar : emptyStar;
+    }
+    return starsHtml;
+  }
+
+  // Load reviews from API
+  async function loadReviews() {
+    console.log('📦 Loading PDP reviews...');
+
+    try {
+      const apiUrl = CONFIG.apiUrl || "http://localhost:5000/api/reviews"; 
+      const response = await fetch(apiUrl, {
+        method: "GET",
+        mode: "cors",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true"
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      console.log('✅ PDP Reviews loaded:', data);
+      if (!data?.reviews || !Array.isArray(data.reviews) || data.reviews.length === 0) {
+        showNoReviews();
+        return;
+      }
+      allReviews = data.reviews.filter(review => review.rating >= 1);    
+      if (allReviews.length === 0) {
+          showNoReviews();
+          return;
+      }
+      showReview(0);
+      startAutoScroll();
+
+    } catch (error) {
+      console.error('Error loading PDP reviews:', error);
+      showError();
+    }
+  }
+  function showReview(index) {
+    if (index < 0 || index >= allReviews.length) return;
+    currentIndex = index;
+    const slider = document.getElementById('pdp-review-slider');
+    if (!slider) return;
+    const review = allReviews[currentIndex];
+    const card = createReviewCard(review);
+    slider.innerHTML = '';
+    slider.appendChild(card);
+    updateNavButtons();
+    applyCustomStyles();
+  }
+  function createReviewCard(review) {
+    const card = document.createElement('div');
+    card.className = 'pdp-review-card';
+    const stars = createStars(review.rating, 20); 
+    const shortMessage = truncateText(review.comment, CONFIG.maxWords);
+    const hasMore = review.comment && review.comment.trim().split(/\s+/).length > CONFIG.maxWords;
+    card.innerHTML = `
+      <div class="pdp-card-stars" style="color: ${CONFIG.starColor};">
+        ${stars}
+      </div>
+      <div class="pdp-card-name">${review.name}</div>
+      <div class="pdp-card-message">
+        ${shortMessage}
+        ${hasMore ? '<span class="pdp-read-more">Read more</span>' : ''}
+      </div>
+      <div class="pdp-card-product-name">
+        ${review.productName || 'Product Review'}
+      </div>
+    `;
+    if (hasMore || review.comment) {
+      card.style.cursor = 'pointer';
+      card.addEventListener('click', (e) => {
+          if (!e.target.closest('.pdp-nav-btn')) {
+              openReviewModal(review);
+          }
+      });
+    }
+    return card;
+  }
+  function applyCustomStyles() {
+    const card = document.querySelector('.pdp-review-card');
+    if (card) {
+      card.style.backgroundColor = CONFIG.cardBgColor;
+      card.style.color = CONFIG.cardTextColor;
+      const nameEl = card.querySelector('.pdp-card-name');
+      const messageEl = card.querySelector('.pdp-card-message');
+      if(nameEl) nameEl.style.color = CONFIG.cardTextColor;
+      if(messageEl) messageEl.style.color = 'inherit'; 
+    }
+  }
+  function showPrevReview() {
+    if (currentIndex > 0) {
+      showReview(currentIndex - 1);
+      resetAutoScroll();
+    }
+  }
+  function showNextReview() {
+    if (currentIndex < allReviews.length - 1) {
+      showReview(currentIndex + 1);
+      resetAutoScroll();
+    } else if (CONFIG.autoScroll && allReviews.length > 1) {
+      showReview(0);
+      resetAutoScroll();
+    }
+  }
+  function updateNavButtons() {
+    const prevBtn = document.querySelector('.pdp-nav-prev');
+    const nextBtn = document.querySelector('.pdp-nav-next');
+    
+    if (allReviews.length <= 1) {
+        if (prevBtn) prevBtn.disabled = true;
+        if (nextBtn) nextBtn.disabled = true;
+        return;
+    }
+
+    if (prevBtn) prevBtn.disabled = currentIndex === 0;
+        if (nextBtn) {
+        nextBtn.disabled = !CONFIG.autoScroll && currentIndex === allReviews.length - 1;
+    }
+  }
+  function startAutoScroll() {
+    if (!CONFIG.autoScroll || allReviews.length <= 1) return;
+    stopAutoScroll();
+    autoScrollInterval = setInterval(() => {
+      showNextReview();
+    }, CONFIG.scrollDelay);
+  }
+  function stopAutoScroll() {
+    if (autoScrollInterval) {
+      clearInterval(autoScrollInterval);
+      autoScrollInterval = null;
+    }
+  }
+  function resetAutoScroll() {
+    stopAutoScroll();
+    startAutoScroll();
+  }
+  window.openReviewModal = function(review) {
+    const modal = document.getElementById('pdp-review-modal');
+    if (!modal) return;
+    const modalStarsHtml = createStars(review.rating, 24); 
+    document.getElementById('modal-avatar').src = review.profileImage || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ccc"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
+    document.getElementById('modal-avatar').alt = review.name;
+    document.getElementById('modal-name').textContent = review.name;
+    document.getElementById('modal-stars').innerHTML = modalStarsHtml;
+    document.getElementById('modal-stars').style.color = CONFIG.starColor;
+    document.getElementById('modal-date').textContent = formatDate(review.date);
+    document.getElementById('modal-message').textContent = review.comment || 'No additional comments.';
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    requestAnimationFrame(() => {
+      modal.classList.add('pdp-modal-active');
+    });
+   stopAutoScroll();
+  };
+  window.closeReviewModal = function() {
+    const modal = document.getElementById('pdp-review-modal');
+    if (!modal) return;
+    modal.classList.remove('pdp-modal-active');
+    setTimeout(() => {
+      modal.style.display = 'none';
+      document.body.style.overflow = '';
+      startAutoScroll();
+    }, 300);
+  };
+  function showNoReviews() {
+    const slider = document.getElementById('pdp-review-slider');
+    if (slider) {
+      slider.innerHTML = '<div class="pdp-no-reviews"><p>No reviews yet.</p></div>';
+    }
+    updateNavButtons();
+  }
+  function showError() {
+    const slider = document.getElementById('pdp-review-slider');
+    if (slider) {
+      slider.innerHTML = '<div class="pdp-error"><p>Unable to load reviews. Please check the API URL.</p></div>';
+    }
+    updateNavButtons();
+  }
+  function init() {
+    console.log('🚀 PDP Review Preview initializing...');
+
+    const prevBtn = document.querySelector('.pdp-nav-prev');
+    const nextBtn = document.querySelector('.pdp-nav-next');
+    if (prevBtn) prevBtn.addEventListener('click', showPrevReview);
+    if (nextBtn) nextBtn.addEventListener('click', showNextReview);
+    const container = document.querySelector('.pdp-review-container');
+    if (container) {
+      container.addEventListener('mouseenter', stopAutoScroll);
+      container.addEventListener('mouseleave', startAutoScroll);
+    }
+
+    loadReviews();
+    document.addEventListener('keydown', (e) => {
+      if (document.getElementById('pdp-review-modal').classList.contains('pdp-modal-active')) {
+          if (e.key === 'Escape') closeReviewModal();
+      } else {
+          if (e.key === 'ArrowLeft') showPrevReview();
+          if (e.key === 'ArrowRight') showNextReview();
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+</script>
+
+{% style %}
+  .pdp-review-preview {
+    width: 100%;
+    max-width: 100%;
+    background: #ffffff;
+  }
+  .pdp-review-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    gap: 16px;
+  }
+
+  .pdp-review-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+    flex-grow: 1;
+  }
+
+  .pdp-review-nav-group {
+    display: none;
+  }
+
+  .pdp-nav-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid #e5e7eb;
+    background: white;
+    color: #374151;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    padding: 0;
+  }
+
+  .pdp-nav-btn:hover:not(:disabled) {
+    background: #f9fafb;
+    border-color: #d1d5db;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  }
+
+  .pdp-nav-btn:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+
+  .pdp-nav-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* Specific styling for side buttons */
+  .pdp-nav-side {
+    position: absolute;
+    top: 50%;
+    /* transform: translateY(-50%); */
+    margin-top: 0;
+  }
+
+  .pdp-nav-prev.pdp-nav-side {
+    left: -15px;
+  }
+
+  .pdp-nav-next.pdp-nav-side {
+    right: -15px;
+  }
+
+  /* === Single Card Container (Crucial for positioning side buttons) === */
+  .pdp-review-container {
+    width: 100%;
+    max-width: 100%;
+    position: relative;
+    /* padding: 0 20px; */
+  }
+
+  .pdp-review-slider {
+    width: 100%;
+    min-height: 200px;
+    display: flex;
+    align-items: stretch;
+  }
+
+  /* === Review Card (Unchanged for content) === */
+  .pdp-review-card {
+    width: 100%;
+    height: auto;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 25px;
+    transition: all 0.3s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    animation: fadeIn 0.4s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .pdp-review-card:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    border-color: #d1d5db;
+  }
+
+  .pdp-card-stars {
+    font-size: 0;
+    margin-bottom: 16px;
+    color: #fbbf24;
+    line-height: 1;
+    display: flex;
+  }
+
+  .pdp-card-stars svg {
+    vertical-align: middle;
+  }
+
+  .pdp-card-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #111827;
+    margin-bottom: 14px;
+    line-height: 1.3;
+  }
+
+  .pdp-card-message {
+    font-size: 15px;
+    line-height: 1.7;
+    color: #4b5563;
+    margin-bottom: 16px;
+    min-height: 50px;
+  }
+
+  .pdp-read-more {
+    color: #2563eb;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: 4px;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+  }
+
+  .pdp-read-more:hover {
+    border-bottom-color: #2563eb;
+  }
+
+  .pdp-card-product-name {
+    font-size: 13px;
+    color: #9ca3af;
+    font-style: italic;
+    padding-top: 16px;
+    border-top: 1px solid #f3f4f6;
+    margin-top: 4px;
+    display: none;
+  }
+
+  /* === Loading/Error States === */
+  .pdp-card-loading,
+  .pdp-no-reviews,
+  .pdp-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    width: 100%;
+    color: #9ca3af;
+    text-align: center;
+  }
+
+  .pdp-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid #f3f4f6;
+    border-top-color: #2563eb;
+    border-radius: 50%;
+    animation: pdpSpin 0.8s linear infinite;
+    margin-bottom: 12px;
+  }
+
+  @keyframes pdpSpin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* === Modal (FIXED: Ensuring centered on screen) === */
+  .pdp-review-modal {
+    position: fixed; /* Use fixed to stay in viewport center */
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .pdp-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .pdp-review-modal.pdp-modal-active .pdp-modal-overlay {
+    opacity: 1;
+  }
+
+  .pdp-modal-content {
+    position: relative;
+    background: white;
+    border-radius: 16px;
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+    transform: scale(0.9);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 10001;
+    pointer-events: auto;
+  }
+
+  .pdp-review-modal.pdp-modal-active .pdp-modal-content {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  .pdp-modal-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: #f3f4f6;
+    border: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 24px;
+    line-height: 1;
+    color: #6b7280;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    z-index: 2;
+    padding: 0;
+  }
+
+  .pdp-modal-close:hover {
+    background: #e5e7eb;
+    color: #111827;
+  }
+
+  .pdp-modal-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 28px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .pdp-modal-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid #f3f4f6;
+    flex-shrink: 0;
+  }
+
+  .pdp-modal-info {
+    flex: 1;
+  }
+
+  .pdp-modal-name {
+    font-size: 20px;
+    font-weight: 600;
+    color: #111827;
+    margin: 0 0 8px 0;
+  }
+
+  .pdp-modal-stars {
+    font-size: 0;
+    margin-bottom: 6px;
+    color: #fbbf24;
+    display: flex;
+  }
+
+  .pdp-modal-stars svg {
+    vertical-align: middle;
+  }
+
+  .pdp-modal-date {
+    font-size: 14px;
+    color: #6b7280;
+  }
+
+  .pdp-modal-body {
+    padding: 28px;
+  }
+
+  .pdp-modal-message {
+    font-size: 16px;
+    line-height: 1.7;
+    color: #374151;
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  /* === Mobile Responsive === */
+  @media (max-width: 768px) {
+    .pdp-review-preview {
+      padding: 20px 12px;
+    }
+
+    .pdp-review-container {
+      padding: 0 10px;
+    }
+
+    .pdp-nav-prev.pdp-nav-side {
+      left: 0px;
+    }
+
+    .pdp-nav-next.pdp-nav-side {
+      right: 0px;
+    }
+
+    /* Modal Fixes for Mobile */
+    .pdp-review-modal {
+      padding: 10px;
+    }
+
+    .pdp-modal-content {
+      max-width: 95vw;
+    }
+
+    .pdp-modal-header {
+      padding: 20px;
+    }
+
+    .pdp-modal-body {
+      padding: 20px;
+    }
+
+    .pdp-modal-avatar {
+      width: 56px;
+      height: 56px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .pdp-review-preview {
+      padding: 16px 8px;
+    }
+
+    .pdp-review-container {
+      padding: 0 8px;
+    }
+
+    .pdp-nav-btn {
+      width: 36px;
+      height: 36px;
+    }
+
+    .pdp-nav-prev.pdp-nav-side {
+      left: 0px;
+    }
+
+    .pdp-nav-next.pdp-nav-side {
+      right: 0px;
+    }
+
+    /* Modal Fixes for Smallest Screens */
+    .pdp-modal-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      padding-bottom: 12px;
+    }
+
+    .pdp-modal-avatar {
+      margin-bottom: 4px;
+    }
+
+    .pdp-modal-name {
+      font-size: 18px;
+    }
+
+    .pdp-modal-info {
+      width: 100%;
+    }
+
+    .pdp-modal-stars {
+      margin-bottom: 4px;
+    }
+  }
+{% endstyle %}
+
+{% schema %}
+{
+  "name": "PDP Review Preview",
+  "target": "section",
+  "templates": ["product"],
+  "settings": [
+    {
+      "type": "text",
+      "id": "pdpreview_heading",
+      "label": "Section Heading",
+      "default": "Customer Reviews"
+    },
+    {
+      "type": "paragraph",
+      "content": "Display one review at a time with navigation arrows. Full width, clean design."
+    },
+    {
+      "type": "text",
+      "id": "api_url",
+      "label": "API URL",
+      "default": "http://localhost:5000/api/reviews",
+      "info": "Backend endpoint for reviews"
+    },
+    {
+      "type": "header",
+      "content": "Auto Scroll"
+    },
+    {
+      "type": "checkbox",
+      "id": "enable_auto_scroll",
+      "label": "Enable Auto Scroll",
+      "default": true,
+      "info": "Automatically cycle through reviews"
+    },
+    {
+      "type": "range",
+      "id": "scroll_delay",
+      "label": "Scroll Delay",
+      "min": 3,
+      "max": 15,
+      "step": 1,
+      "unit": "s",
+      "default": 5,
+      "info": "Seconds before switching"
+    },
+    {
+      "type": "header",
+      "content": "Colors"
+    },
+    {
+      "type": "color",
+      "id": "star_color",
+      "label": "Star Color",
+      "default": "#FBBF24"
+    },
+    {
+      "type": "color",
+      "id": "card_bg_color",
+      "label": "Card Background",
+      "default": "#FFFFFF"
+    },
+    {
+      "type": "color",
+      "id": "card_text_color",
+      "label": "Text Color",
+      "default": "#111827"
+    }
+  ]
+}
+{% endschema %}
